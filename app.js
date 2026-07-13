@@ -1,5 +1,6 @@
-/* Umsatzboard Controlling v2 — Vanilla JS + Supabase/Demo. Kein Build-Step.
-   Intern: bereiche = Führungskraft (FK), sub_leiter = Berater, eintraege = Interessent. */
+/* Umsatzboard Controlling v3 — Vanilla JS + Supabase/Demo. Kein Build-Step.
+   Modell: jeder Mitarbeiter ist ein Knoten (bereiche) in der Hierarchie (parent_id) und
+   plant eigene Interessenten (eintraege.bereich_id zeigt direkt auf die Person). */
 const CFG = window.SUPABASE_CONFIG || {};
 const DEMO = !CFG.url || /DEIN-PROJEKT/.test(CFG.url);
 const sb = DEMO ? DemoDB.client() : window.supabase.createClient(CFG.url, CFG.anonKey);
@@ -17,11 +18,16 @@ const str = v => (v == null ? '' : String(v)).trim();
 const num = v => { if (typeof v === 'number') return v; const n = parseFloat(str(v).replace(/[^\d,-]/g, '').replace(',', '.')); return isNaN(n) ? 0 : n; };
 const monthLabel = m => { if (!m) return '—'; const [y, mo] = m.split('-'); return MONATE[+mo - 1] + ' ' + y; };
 function monthShift(m, d) { let [y, mo] = m.split('-').map(Number); mo += d; while (mo < 1) { mo += 12; y--; } while (mo > 12) { mo -= 12; y++; } return y + '-' + String(mo).padStart(2, '0'); }
+const heute = () => new Date().toISOString().slice(0, 10);
+function daysSince(dstr) { if (!dstr) return null; const d = new Date(dstr + 'T00:00:00'); if (isNaN(d)) return null; const t = new Date(); t.setHours(0, 0, 0, 0); return Math.floor((t - d) / 86400000); }
+function fmtDate(dstr) { if (!dstr) return '—'; const [y, m, d] = dstr.split('-'); return d + '.' + m + '.' + y; }
+const byAge = (a, b) => { const x = a.erfasst_am || '9999', y = b.erfasst_am || '9999'; return x < y ? -1 : x > y ? 1 : ((a.sortierung || 0) - (b.sortierung || 0)); };
 
 let BEREICHE = [];
 let viewer = { role: 'admin', fkId: null };
 let currentMonat = new Date().toISOString().slice(0, 7);
 let currentView = showControlling, curName = 'controlling';
+let showAllNodes = false;
 let realtimeCh = null;
 
 /* ── Auth ──────────────────────────────────────────────────────────── */
@@ -76,7 +82,7 @@ async function enterApp(session) {
   $('#login').hidden = true; $('#recovery').hidden = true; $('#app').hidden = false;
   await loadViewer(session);
   if (DEMO) $('#userLine').innerHTML = '<span style="color:var(--gold-l);font-weight:700">● DEMO-MODUS</span><br>lokale Beispieldaten';
-  else $('#userLine').textContent = session.user.email + (viewer.role === 'admin' ? ' · Admin' : ' · FK');
+  else $('#userLine').textContent = session.user.email + (viewer.role === 'admin' ? ' · Admin' : '');
   await loadBereiche();
   buildRoleSwitch();
   subscribe();
@@ -95,8 +101,9 @@ const childrenFks = id => BEREICHE.filter(b => b.parent_id === id);
 function subtreeIds(id) { const out = [id]; for (const c of childrenFks(id)) out.push(...subtreeIds(c.id)); return out; }
 function fkDepth(b) { let d = 0, p = b.parent_id; while (p != null) { const par = BEREICHE.find(x => x.id === p); if (!par) break; d++; p = par.parent_id; } return d; }
 const visibleFks = () => isAdmin() ? BEREICHE : BEREICHE.filter(b => subtreeIds(viewer.fkId).includes(b.id));
-const scopedFkName = () => { const b = BEREICHE.find(x => x.id === viewer.fkId); return b ? b.name : '—'; };
+const scopedName = () => { const b = BEREICHE.find(x => x.id === viewer.fkId); return b ? b.name : '—'; };
 const baseDepth = () => isAdmin() ? 0 : fkDepth(BEREICHE.find(x => x.id === viewer.fkId) || { parent_id: null });
+const fkName = id => { const b = BEREICHE.find(x => x.id === id); return b ? b.name : '—'; };
 
 function buildRoleSwitch() {
   const box = $('#roleSwitch');
@@ -105,7 +112,7 @@ function buildRoleSwitch() {
   box.appendChild(el('div', 'rs-lbl', 'ANSICHT ALS'));
   const sel = el('select');
   sel.appendChild(new Option('Admin · alle', 'admin'));
-  for (const b of BEREICHE) sel.appendChild(new Option('FK · ' + b.name, 'fk:' + b.id));
+  for (const b of BEREICHE) sel.appendChild(new Option('· '.repeat(fkDepth(b)) + b.name + (b.rolle ? ' (' + b.rolle + ')' : ''), 'fk:' + b.id));
   sel.value = isAdmin() ? 'admin' : 'fk:' + viewer.fkId;
   sel.onchange = () => {
     viewer = sel.value === 'admin' ? { role: 'admin', fkId: null } : { role: 'fk', fkId: Number(sel.value.split(':')[1]) };
@@ -125,7 +132,9 @@ function renderNav() {
   item('🗓 Monatsauswertung', showMonat, curName === 'monat');
   item('♻ Recycling', showRecycling, curName === 'recycling');
   const base = baseDepth();
-  for (const b of visibleFks()) {
+  // Nav zeigt Führungskräfte (Knoten mit Team) + ggf. den eigenen Knoten; Einzel-Mitarbeiter erreicht man über Team-Kacheln.
+  const navNodes = visibleFks().filter(b => childrenFks(b.id).length > 0 || b.id === viewer.fkId);
+  for (const b of navNodes) {
     const a = el('a', curName === 'fk:' + b.id ? 'active' : '');
     a.style.paddingLeft = (11 + Math.max(0, fkDepth(b) - base) * 13) + 'px';
     a.appendChild(el('span', 'dot ' + b.gruppe));
@@ -149,17 +158,20 @@ async function allVisibleEintraege() {
   const { data } = await sb.from('eintraege').select('*');
   return (data || []).filter(r => ids.includes(r.bereich_id));
 }
-async function allSubs() { const { data } = await sb.from('sub_leiter').select('*'); return data || []; }
-const subName = (subs, id) => { const s = subs.find(x => x.id === id); return s ? s.name : '—'; };
-const fkName = id => { const b = BEREICHE.find(x => x.id === id); return b ? b.name : '—'; };
+function nodeStats(id, monthRows) {
+  const ids = subtreeIds(id);
+  const fr = monthRows.filter(r => ids.includes(r.bereich_id));
+  const k = fr.filter(r => r.status === 'kunde');
+  return { n: fr.length, k: k.length, ums: k.reduce((a, r) => a + num(r.potenzial), 0) };
+}
 
 /* ── Controlling-Dashboard ─────────────────────────────────────────── */
 async function showControlling() {
   curName = 'controlling'; renderNav();
   const rows = (await allVisibleEintraege()).filter(r => (r.monat || '') === currentMonat);
   const v = $('#view'); v.innerHTML = '';
-  v.appendChild(header('CONTROLLING', isAdmin() ? 'Controlling-Dashboard' : 'Mein Team',
-    (isAdmin() ? 'Alle Führungskräfte' : scopedFkName()) + ' · Monat ' + monthLabel(currentMonat), 'teal'));
+  v.appendChild(header('CONTROLLING', isAdmin() ? 'Controlling-Dashboard' : 'Mein Bereich',
+    (isAdmin() ? 'Gesamte Organisation' : scopedName()) + ' · Monat ' + monthLabel(currentMonat), 'teal'));
   v.appendChild(monthNav());
 
   const kunden = rows.filter(r => r.status === 'kunde');
@@ -171,13 +183,20 @@ async function showControlling() {
     kpi('Abschlussquote', quote + ' %'), kpi('Umsatz (Kunde)', eur(umsatz)), kpi('Gew. Pipeline', eur(gew)));
   v.appendChild(kpis);
 
-  v.appendChild(el('div', 'pillinfo', 'Zahlen je Führungskraft rollen den ganzen Unterbaum hoch (inkl. untergeordneter FKs).'));
+  const bar = el('div', 'toolbar');
+  const lbl = el('label', 'pillinfo'); lbl.style.cssText = 'display:flex;align-items:center;gap:8px;cursor:pointer';
+  const cb = el('input'); cb.type = 'checkbox'; cb.checked = showAllNodes;
+  cb.onchange = () => { showAllNodes = cb.checked; rerenderCurrent(); };
+  lbl.append(cb, el('span', null, 'Alle Mitarbeiter zeigen (nicht nur Führungskräfte) · Zahlen rollen den Unterbau hoch'));
+  bar.appendChild(lbl); v.appendChild(bar);
+
   const t = el('table', 'dash-tbl');
-  t.innerHTML = '<thead><tr><th>Führungskraft</th><th>Rolle</th><th class="num">Interess.</th>' +
+  t.innerHTML = '<thead><tr><th>Mitarbeiter</th><th>Rolle</th><th class="num">Interess.</th>' +
     '<th class="num">Kunden</th><th class="num">Quote</th><th class="num">Umsatz</th><th class="num">Gew. Pipeline</th></tr></thead>';
   const tb = el('tbody');
   const scopeIds = visibleFks().map(b => b.id); const base = baseDepth();
-  for (const b of visibleFks()) {
+  const tableNodes = visibleFks().filter(b => showAllNodes || childrenFks(b.id).length > 0 || b.id === viewer.fkId);
+  for (const b of tableNodes) {
     const ids = subtreeIds(b.id).filter(id => scopeIds.includes(id));
     const fr = rows.filter(r => ids.includes(r.bereich_id));
     const fk = fr.filter(r => r.status === 'kunde');
@@ -198,17 +217,17 @@ async function showControlling() {
     tb.appendChild(tr);
   }
   t.appendChild(tb); v.appendChild(t);
-  if (!rows.length) v.appendChild(el('div', 'empty', 'Keine Interessenten in ' + monthLabel(currentMonat) + '. Lege welche im Bereich einer Führungskraft an.'));
+  if (!rows.length) v.appendChild(el('div', 'empty', 'Keine Interessenten in ' + monthLabel(currentMonat) + '. Lege welche im Board eines Mitarbeiters an.'));
 }
 
 /* ── Monatsauswertung ──────────────────────────────────────────────── */
 async function showMonat() {
   curName = 'monat'; renderNav();
-  const [rowsAll, subs] = await Promise.all([allVisibleEintraege(), allSubs()]);
-  const rows = rowsAll.filter(r => (r.monat || '') === currentMonat).sort((a, b) => (a.bereich_id - b.bereich_id) || (a.sortierung - b.sortierung));
+  const rowsAll = await allVisibleEintraege();
+  const rows = rowsAll.filter(r => r.monat === currentMonat).sort((a, b) => (a.bereich_id - b.bereich_id) || byAge(a, b));
   const v = $('#view'); v.innerHTML = '';
   v.appendChild(header('MONATSAUSWERTUNG', 'Monat ' + monthLabel(currentMonat),
-    'Wer wurde Kunde – und wer nicht. „Abgelehnt" schiebt den Interessenten mit Grund ins Recycling.', 'gold'));
+    'Alle Interessenten des Monats je Mitarbeiter. „Abgelehnt" schiebt mit Grund ins Recycling.', 'gold'));
   v.appendChild(monthNav());
 
   const kunden = rows.filter(r => r.status === 'kunde').length;
@@ -216,26 +235,25 @@ async function showMonat() {
   v.appendChild(el('div', 'pillinfo', rows.length + ' Interessenten · ' + kunden + ' Kunde · ' + abg + ' abgelehnt · ' + (rows.length - kunden - abg) + ' offen'));
 
   const t = el('table', 'tbl');
-  t.innerHTML = '<thead><tr><th>Interessent</th><th>Berater</th><th>Terminart</th>' +
-    '<th class="num">Potenzial €</th><th>Status</th><th>Grund</th></tr></thead>';
+  t.innerHTML = '<thead><tr><th>Interessent</th><th>Terminart</th><th class="num">Potenzial €</th>' +
+    '<th>Status</th><th>Grund</th><th>Auf Liste seit</th></tr></thead>';
   const tb = el('tbody');
-  const showBands = visibleFks().length > 1;
   let lastFk = null;
   for (const r of rows) {
-    if (showBands && r.bereich_id !== lastFk) {
+    if (r.bereich_id !== lastFk) {
       lastFk = r.bereich_id;
-      const band = el('tr', 'subband'); const td = el('td'); td.colSpan = 6;
       const b = BEREICHE.find(x => x.id === r.bereich_id);
+      const band = el('tr', 'subband'); const td = el('td'); td.colSpan = 6;
       td.textContent = '⬧  ' + fkName(r.bereich_id).toUpperCase() + (b && b.rolle ? '  ·  ' + b.rolle : '');
       band.appendChild(td); tb.appendChild(band);
     }
     const tr = el('tr'); if (r.status === 'kunde') tr.classList.add('is-kunde');
     tr.appendChild(el('td', null, r.kunde || '—'));
-    tr.appendChild(el('td', null, subName(subs, r.sub_leiter_id)));
     tr.appendChild(el('td', null, r.terminart || '—'));
     tr.appendChild(el('td', 'num', eur(num(r.potenzial))));
     tr.appendChild(statusCell(r));
     tr.appendChild(grundCell(r));
+    tr.appendChild(seitDisplay(r));
     tb.appendChild(tr);
   }
   t.appendChild(tb); v.appendChild(t);
@@ -245,7 +263,7 @@ async function showMonat() {
 /* ── Recycling ─────────────────────────────────────────────────────── */
 async function showRecycling() {
   curName = 'recycling'; renderNav();
-  const [rowsAll, subs] = await Promise.all([allVisibleEintraege(), allSubs()]);
+  const rowsAll = await allVisibleEintraege();
   const rec = rowsAll.filter(r => r.status === 'abgelehnt');
   const v = $('#view'); v.innerHTML = '';
   v.appendChild(header('RECYCLING', 'Recycling-Liste',
@@ -259,16 +277,15 @@ async function showRecycling() {
   v.appendChild(kpis);
 
   const t = el('table', 'tbl');
-  t.innerHTML = '<thead><tr><th>Interessent</th>' + (isAdmin() ? '<th>Führungskraft</th>' : '') +
-    '<th>Berater</th><th>Monat</th><th>Ablehnungsgrund</th><th class="num">Potenzial €</th><th class="col-del"></th></tr></thead>';
+  t.innerHTML = '<thead><tr><th>Interessent</th><th>Mitarbeiter</th><th>Letzter Monat</th>' +
+    '<th>Ablehnungsgrund</th><th class="num">Potenzial €</th><th class="col-del"></th></tr></thead>';
   const tb = el('tbody');
   for (const r of rec) {
     const tr = el('tr');
     tr.appendChild(el('td', null, r.kunde || '—'));
-    if (isAdmin()) tr.appendChild(el('td', null, fkName(r.bereich_id)));
-    tr.appendChild(el('td', null, subName(subs, r.sub_leiter_id)));
+    tr.appendChild(el('td', null, fkName(r.bereich_id)));
     tr.appendChild(el('td', null, r.monat ? monthLabel(r.monat) : '—'));
-    tr.appendChild(grundCell(r, true));
+    tr.appendChild(grundCell(r));
     tr.appendChild(el('td', 'num', eur(num(r.potenzial))));
     const at = el('td'); const b = el('button', 'btn sub reactivate', '↺ Reaktivieren');
     b.onclick = async () => { await save(r.id, 'status', 'offen'); await save(r.id, 'monat', currentMonat); toast('In ' + monthLabel(currentMonat) + ' reaktiviert'); rerenderCurrent(); };
@@ -279,90 +296,68 @@ async function showRecycling() {
   if (!rec.length) v.appendChild(el('div', 'empty', 'Recycling ist leer — nichts abgelehnt.'));
 }
 
-/* ── FK-Board (operatives Pflegen, monats-gescoped) ────────────────── */
+/* ── Mitarbeiter-Board (eigene Planung, monats-gescoped) ───────────── */
 async function showFk(id) {
   curName = 'fk:' + id; renderNav();
   const b = BEREICHE.find(x => x.id === id); if (!b) return;
-  const [{ data: subs }, { data: all }] = await Promise.all([
-    sb.from('sub_leiter').select('*').eq('bereich_id', id).order('sortierung'),
-    sb.from('eintraege').select('*').eq('bereich_id', id).order('sortierung')
-  ]);
-  const rows = all.filter(r => (r.monat || '') === currentMonat);
+  const { data: all } = await sb.from('eintraege').select('*');
+  const monthRows = (all || []).filter(r => r.monat === currentMonat);
+  const own = monthRows.filter(r => r.bereich_id === id).sort(byAge);
   const v = $('#view'); v.innerHTML = '';
-  v.appendChild(header((b.rolle || 'FÜHRUNGSKRAFT').toUpperCase(), b.name,
-    'Interessenten ' + monthLabel(currentMonat) + ' · Status pflegen, „Abgelehnt" wandert ins Recycling', b.gruppe));
+  v.appendChild(header((b.rolle || 'MITARBEITER').toUpperCase(), b.name,
+    'Planung ' + monthLabel(currentMonat) + ' · Interessenten pflegen, Status setzen', b.gruppe));
   v.appendChild(monthNav());
 
+  // Hierarchie: übergeordnete Person ändern
   const bar = el('div', 'toolbar');
-  const addSubBtn = el('button', 'btn sub', '+ Berater'); addSubBtn.onclick = () => addBerater(id); bar.appendChild(addSubBtn);
-  // Hierarchie: übergeordnete FK ändern
-  const pWrap = el('label', 'pillinfo'); pWrap.style.display = 'flex'; pWrap.style.alignItems = 'center'; pWrap.style.gap = '7px';
+  const pWrap = el('label', 'pillinfo'); pWrap.style.cssText = 'display:flex;align-items:center;gap:7px';
   pWrap.appendChild(el('span', null, 'Untersteht:'));
   const psel = el('select'); psel.style.cssText = 'border:1px solid var(--line);border-radius:7px;padding:5px';
   psel.appendChild(new Option('— oberste Ebene', ''));
-  for (const o of BEREICHE.filter(x => !subtreeIds(id).includes(x.id))) psel.appendChild(new Option(o.name + ' (' + (o.rolle || '') + ')', o.id));
+  for (const o of BEREICHE.filter(x => !subtreeIds(id).includes(x.id))) psel.appendChild(new Option(o.name + ' · ' + (o.rolle || ''), o.id));
   psel.value = b.parent_id || '';
   psel.onchange = async () => { await sb.from('bereiche').update({ parent_id: psel.value ? Number(psel.value) : null }).eq('id', id); await loadBereiche(); rerenderCurrent(); toast('Hierarchie aktualisiert'); };
   pWrap.appendChild(psel); bar.appendChild(pWrap);
   v.appendChild(bar);
 
-  const kids = childrenFks(id);
+  // Team (direkte Mitarbeiter) als Kacheln — Zahlen inkl. Unterbau
+  const kids = childrenFks(id).slice().sort((a, c) => a.sortierung - c.sortierung);
   if (kids.length) {
-    const kb = el('div', 'childfks'); kb.appendChild(el('span', 'cf-lbl', 'Untergeordnete FKs:'));
-    for (const c of kids) { const a = el('a', 'cf-link'); a.appendChild(el('span', 'dot ' + c.gruppe)); a.appendChild(el('span', null, ' ' + c.name)); a.onclick = () => go(() => showFk(c.id)); kb.appendChild(a); }
-    v.appendChild(kb);
+    v.appendChild(el('div', 'section-lbl', 'Team (' + kids.length + ') — Zahlen inkl. Unterbau · zum Öffnen klicken'));
+    const grid = el('div', 'teamgrid');
+    for (const c of kids) {
+      const st = nodeStats(c.id, monthRows);
+      const card = el('div', 'teamcard');
+      const head = el('div', 'tc-head'); head.appendChild(el('span', 'dot ' + c.gruppe)); head.appendChild(el('span', 'tc-name', ' ' + c.name));
+      card.appendChild(head);
+      card.appendChild(el('div', 'tc-role', c.rolle || ''));
+      card.appendChild(el('div', 'tc-stats', st.n + ' Interess. · ' + st.k + ' Kunde · ' + eur(st.ums)));
+      card.onclick = () => go(() => showFk(c.id));
+      grid.appendChild(card);
+    }
+    v.appendChild(grid);
   }
 
+  // Eigene Interessenten (nach Alter sortiert, ältester zuerst)
+  v.appendChild(el('div', 'section-lbl', 'Eigene Interessenten · ' + monthLabel(currentMonat)));
   const t = el('table', 'tbl');
   t.innerHTML = '<thead><tr><th>Interessent</th><th>Terminart</th><th class="num">Potenzial €</th>' +
-    '<th>Status</th><th>Grund</th><th>Datum</th><th>Notiz</th><th class="col-del"></th></tr></thead>';
+    '<th>Status</th><th>Grund</th><th>Auf Liste seit</th><th>Notiz</th><th class="col-del"></th></tr></thead>';
   const tb = el('tbody');
-  const byGroup = new Map([[null, []]]);
-  for (const s of subs) byGroup.set(s.id, []);
-  for (const r of rows) (byGroup.get(r.sub_leiter_id) || byGroup.get(null)).push(r);
-
-  for (const r of byGroup.get(null)) tb.appendChild(rowEl(r));
-  addLine(tb, id, null);
-  for (const s of subs) {
-    tb.appendChild(bandEl(s, id));
-    for (const r of (byGroup.get(s.id) || [])) tb.appendChild(rowEl(r));
-    addLine(tb, id, s.id);
-  }
+  for (const r of own) tb.appendChild(rowEl(r));
+  addLine(tb, id);
   t.appendChild(tb); v.appendChild(t);
 
-  const pipeline = rows.reduce((a, r) => a + num(r.potenzial), 0);
-  const kundeUms = rows.filter(r => r.status === 'kunde').reduce((a, r) => a + num(r.potenzial), 0);
+  const pipeline = own.reduce((a, r) => a + num(r.potenzial), 0);
+  const kundeUms = own.filter(r => r.status === 'kunde').reduce((a, r) => a + num(r.potenzial), 0);
+  const oldest = own.filter(r => r.erfasst_am)[0];
   const g = el('div', 'gesamt');
-  g.appendChild(el('span', 'lbl', 'PIPELINE ' + monthLabel(currentMonat).toUpperCase()));
+  g.appendChild(el('span', 'lbl', 'EIGENE PIPELINE ' + monthLabel(currentMonat).toUpperCase()));
   const right = el('div', 'gesamt-right');
   right.appendChild(el('span', 'val', eur(pipeline)));
-  right.appendChild(el('span', 'sub-val', 'davon Kunde: ' + eur(kundeUms)));
+  right.appendChild(el('span', 'sub-val', 'davon Kunde: ' + eur(kundeUms) + (oldest ? '  ·  ältester Lead: ' + daysSince(oldest.erfasst_am) + ' Tage' : '')));
   g.appendChild(right);
   v.appendChild(g);
-}
-
-function bandEl(s, bereichId) {
-  const tr = el('tr', 'subband');
-  const td = el('td'); td.colSpan = 8;
-  const lbl = el('span', null, '⬧  ' + s.name.toUpperCase() + '  (Berater)');
-  lbl.title = 'Doppelklick: umbenennen/löschen';
-  lbl.ondblclick = async () => {
-    const n = prompt('Berater umbenennen (leer = löschen):', s.name); if (n == null) return;
-    if (n.trim() === '') { if (confirm('Berater löschen? Interessenten bleiben, verlieren die Zuordnung.')) { await sb.from('sub_leiter').delete().eq('id', s.id); rerenderCurrent(); } return; }
-    await sb.from('sub_leiter').update({ name: n.trim() }).eq('id', s.id); rerenderCurrent();
-  };
-  td.appendChild(lbl);
-  const mv = el('button', 'band-move', '⇄ verschieben'); mv.title = 'Berater zu anderer Führungskraft verschieben';
-  mv.onclick = async () => {
-    const list = BEREICHE.map(x => x.id + ' = ' + x.name).join('\n');
-    const t = prompt('Berater „' + s.name + '" zu welcher Führungskraft?\nID eingeben:\n\n' + list, bereichId);
-    if (!t) return; const tid = Number(t); if (!BEREICHE.find(x => x.id === tid)) return toast('Ungültige ID', true);
-    await sb.from('sub_leiter').update({ bereich_id: tid }).eq('id', s.id);
-    await sb.from('eintraege').update({ bereich_id: tid }).eq('sub_leiter_id', s.id);
-    toast('Berater verschoben'); rerenderCurrent();
-  };
-  td.appendChild(mv);
-  tr.appendChild(td); return tr;
 }
 
 function rowEl(r) {
@@ -372,7 +367,7 @@ function rowEl(r) {
   tr.appendChild(cellPot(r));
   tr.appendChild(statusCell(r));
   tr.appendChild(grundCell(r));
-  tr.appendChild(cellInput(r, 'datum', 'text'));
+  tr.appendChild(seitCell(r));
   tr.appendChild(cellInput(r, 'notiz', 'text'));
   const del = el('td', 'col-del'); const b = el('button', 'del-btn', '✕');
   b.onclick = async () => { await sb.from('eintraege').delete().eq('id', r.id); rerenderCurrent(); };
@@ -410,20 +405,33 @@ function grundCell(r) {
   i.onchange = () => save(r.id, 'ablehnungsgrund', i.value || null);
   td.appendChild(i); return td;
 }
-function addLine(tb, bereichId, subId) {
+function ageBadge(dstr) {
+  const d = daysSince(dstr); const span = el('span', 'age');
+  if (d == null) { span.textContent = '—'; span.classList.add('age-none'); return span; }
+  span.textContent = d + ' T'; span.title = 'seit ' + fmtDate(dstr);
+  span.classList.add(d > 45 ? 'age-hot' : d > 21 ? 'age-warm' : 'age-ok');
+  return span;
+}
+function seitCell(r) {   // editierbar (Board)
+  const td = el('td', 'seit');
+  const i = el('input'); i.type = 'date'; i.value = r.erfasst_am || ''; i.title = 'Seit wann auf der Liste';
+  i.onchange = () => { save(r.id, 'erfasst_am', i.value || null); r.erfasst_am = i.value; td.querySelector('.age').replaceWith(ageBadge(i.value)); };
+  td.append(i, ageBadge(r.erfasst_am)); return td;
+}
+function seitDisplay(r) {  // read-only (Übersichten)
+  const td = el('td', 'seit');
+  td.append(el('span', 'seit-date', fmtDate(r.erfasst_am)), ageBadge(r.erfasst_am));
+  return td;
+}
+function addLine(tb, bereichId) {
   const tr = el('tr'); const td = el('td'); td.colSpan = 8; td.style.padding = '4px';
   const btn = el('button', 'add-line', '+ Interessent'); btn.onclick = async () => {
-    const { data, error } = await sb.from('eintraege').insert({ bereich_id: bereichId, sub_leiter_id: subId, monat: currentMonat, status: 'offen', potenzial: 0, sortierung: Date.now() % 1e9 }).select().single();
+    const { data, error } = await sb.from('eintraege').insert({ bereich_id: bereichId, monat: currentMonat, status: 'offen', potenzial: 0, erfasst_am: heute(), sortierung: Date.now() % 1e9 }).select().single();
     if (error) return toast(error.message, true);
     tb.insertBefore(rowEl(data), tr);
     const first = tr.previousSibling.querySelector('input'); if (first) first.focus();
   };
   td.appendChild(btn); tr.appendChild(td); tb.appendChild(tr);
-}
-async function addBerater(bereichId) {
-  const name = prompt('Name des Beraters:'); if (!name || !name.trim()) return;
-  const { error } = await sb.from('sub_leiter').insert({ bereich_id: bereichId, name: name.trim(), sortierung: Date.now() % 1e9 });
-  error ? toast(error.message, true) : rerenderCurrent();
 }
 async function save(id, col, val) {
   const { error } = await sb.from('eintraege').update({ [col]: val, updated_at: new Date().toISOString() }).eq('id', id);
@@ -444,7 +452,7 @@ function subscribe() {
     rerenderCurrent();
   };
   realtimeCh = sb.channel('board');
-  for (const table of ['eintraege', 'sub_leiter', 'bereiche'])
+  for (const table of ['eintraege', 'bereiche'])
     realtimeCh.on('postgres_changes', { event: '*', schema: 'public', table }, rerender);
   realtimeCh.subscribe();
 }
@@ -466,12 +474,12 @@ function toast(msg, err) {
   clearTimeout(toastT); toastT = setTimeout(() => t.hidden = true, err ? 4000 : 1400);
 }
 
-/* ── Excel-Import (SheetJS) ────────────────────────────────────────── */
+/* ── Excel-Import (SheetJS) — je Blatt = ein Mitarbeiter ───────────── */
 $('#importBtn').addEventListener('click', () => $('#importFile').click());
 $('#importFile').addEventListener('change', async e => {
   const file = e.target.files[0]; e.target.value = '';
   if (!file) return;
-  if (!confirm('Import aus "' + file.name + '"?\nBestehende Interessenten & Berater der gefundenen Führungskräfte werden ersetzt.')) return;
+  if (!confirm('Import aus "' + file.name + '"?\nInteressenten des gewählten Monats werden je gefundenem Mitarbeiter ersetzt.')) return;
   toast('Import läuft…');
   try { await importXlsx(file); toast('Import fertig'); go(showControlling); }
   catch (err) { toast('Import-Fehler: ' + err.message, true); }
@@ -482,14 +490,11 @@ async function importXlsx(file) {
   for (const b of BEREICHE) {
     const ws = wb.Sheets[b.name]; if (!ws) continue;
     const grid = XLSX.utils.sheet_to_json(ws, { header: 1, raw: true, defval: null });
-    await sb.from('eintraege').delete().eq('bereich_id', b.id);
-    await sb.from('sub_leiter').delete().eq('bereich_id', b.id);
-    let curSub = null, sIdx = 0, eIdx = 0; const eintraege = [];
+    await sb.from('eintraege').delete().eq('bereich_id', b.id).eq('monat', importMonat);
+    const eintraege = []; let idx = 0;
     for (let ri = 7; ri <= 65 && ri < grid.length; ri++) {
-      const row = grid[ri] || []; const cB = str(row[1]), cC = str(row[2]);
-      if (cB.includes('⬧')) { const { data } = await sb.from('sub_leiter').insert({ bereich_id: b.id, name: cB.replace(/⬧/g, '').trim(), sortierung: ++sIdx * 100 }).select().single(); curSub = data ? data.id : null; continue; }
-      if (!cC) continue;
-      eintraege.push({ bereich_id: b.id, sub_leiter_id: curSub, kunde: cC, monat: importMonat, status: 'offen', potenzial: num(row[5]), datum: str(row[6]) || null, terminart: str(row[7]) || null, notiz: str(row[8]) || null, sortierung: ++eIdx * 100 });
+      const row = grid[ri] || []; const cC = str(row[2]); if (!cC || cC.includes('⬧')) continue;
+      eintraege.push({ bereich_id: b.id, kunde: cC, monat: importMonat, status: 'offen', potenzial: num(row[5]), terminart: str(row[7]) || null, notiz: str(row[8]) || null, erfasst_am: heute(), sortierung: ++idx * 100 });
     }
     if (eintraege.length) { const { error } = await sb.from('eintraege').insert(eintraege); if (error) throw error; }
   }
@@ -499,35 +504,29 @@ async function importXlsx(file) {
 $('#exportBtn').addEventListener('click', exportXlsx);
 async function exportXlsx() {
   toast('Export wird erstellt…');
-  const [{ data: subs }, { data: rows }] = await Promise.all([
-    sb.from('sub_leiter').select('*').order('sortierung'),
-    sb.from('eintraege').select('*').order('sortierung')
-  ]);
+  const { data: rows } = await sb.from('eintraege').select('*').order('bereich_id');
   const wb = XLSX.utils.book_new();
   const add = (name, aoa) => XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(aoa), name.replace(/[\[\]\*\?\/\\:]/g, ' ').slice(0, 31));
-  const subN = id => { const s = subs.find(x => x.id === id); return s ? s.name : ''; };
 
-  // Controlling-Übersicht (aktueller Monat)
-  const cur = rows.filter(r => (r.monat || '') === currentMonat);
-  const dash = [['Führungskraft', 'Gruppe', 'Interessenten', 'Kunden', 'Quote %', 'Umsatz €']];
+  // Controlling (aktueller Monat) — je Mitarbeiter mit Unterbau-Rollup
+  const cur = (rows || []).filter(r => r.monat === currentMonat);
+  const dash = [['Mitarbeiter', 'Rolle', 'Ebene', 'Interessenten', 'Kunden', 'Quote %', 'Umsatz €']];
   for (const b of BEREICHE) {
-    const fr = cur.filter(r => r.bereich_id === b.id); const fk = fr.filter(r => r.status === 'kunde');
-    dash.push([b.name, b.gruppe, fr.length, fk.length, fr.length ? Math.round(fk.length / fr.length * 100) : '', fk.reduce((a, r) => a + num(r.potenzial), 0)]);
+    const ids = subtreeIds(b.id); const fr = cur.filter(r => ids.includes(r.bereich_id)); const k = fr.filter(r => r.status === 'kunde');
+    dash.push([b.name, b.rolle || '', fkDepth(b), fr.length, k.length, fr.length ? Math.round(k.length / fr.length * 100) : '', k.reduce((a, r) => a + num(r.potenzial), 0)]);
   }
   add('Controlling ' + currentMonat, dash);
 
+  // Alle Interessenten flach
+  const flat = [['Mitarbeiter', 'Rolle', 'Monat', 'Interessent', 'Terminart', 'Potenzial €', 'Status', 'Grund', 'Auf Liste seit', 'Notiz']];
+  for (const r of (rows || [])) { const b = BEREICHE.find(x => x.id === r.bereich_id) || {}; flat.push([b.name || '', b.rolle || '', r.monat || '', r.kunde || '', r.terminart || '', num(r.potenzial), r.status || '', r.ablehnungsgrund || '', r.erfasst_am || '', r.notiz || '']); }
+  add('Interessenten', flat);
+
   // Recycling
-  const rec = [['Interessent', 'Führungskraft', 'Berater', 'Monat', 'Ablehnungsgrund', 'Potenzial €']];
-  for (const r of rows.filter(r => r.status === 'abgelehnt')) rec.push([r.kunde || '', fkName(r.bereich_id), subN(r.sub_leiter_id), r.monat || '', r.ablehnungsgrund || '', num(r.potenzial)]);
+  const rec = [['Interessent', 'Mitarbeiter', 'Monat', 'Ablehnungsgrund', 'Potenzial €']];
+  for (const r of (rows || []).filter(r => r.status === 'abgelehnt')) rec.push([r.kunde || '', fkName(r.bereich_id), r.monat || '', r.ablehnungsgrund || '', num(r.potenzial)]);
   add('Recycling', rec);
 
-  // je FK ein Sheet
-  for (const b of BEREICHE) {
-    const aoa = [['Interessent', 'Berater', 'Monat', 'Terminart', 'Potenzial €', 'Status', 'Grund', 'Datum', 'Notiz']];
-    for (const r of rows.filter(r => r.bereich_id === b.id))
-      aoa.push([r.kunde || '', subN(r.sub_leiter_id), r.monat || '', r.terminart || '', num(r.potenzial), r.status || '', r.ablehnungsgrund || '', r.datum || '', r.notiz || '']);
-    add(b.name, aoa);
-  }
   XLSX.writeFile(wb, 'Umsatzboard_' + new Date().toISOString().slice(0, 10) + '.xlsx');
   toast('Export fertig');
 }

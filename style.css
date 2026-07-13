@@ -80,6 +80,32 @@ tr.is-kunde td{background:#DCFCE733!important}
 .row-dim:hover td{opacity:1}
 .tree{color:var(--grey);font-size:11px}
 
+/* Trainee/Assistent-Farbtier */
+.dot.TR{background:#94A3B8} .badge.TR{background:#64748B} .accent.TR{background:#94A3B8}
+
+/* "Auf Liste seit" — Alter-Anzeige */
+td.seit{white-space:nowrap}
+td.seit input[type=date]{width:130px;border:1px solid transparent;background:transparent;padding:5px 4px;border-radius:6px;font-size:12px}
+td.seit input[type=date]:hover{border-color:var(--line)}
+td.seit input[type=date]:focus{outline:none;border-color:var(--teal);background:#fff}
+.seit-date{font-size:12px;color:var(--slate);margin-right:6px;font-variant-numeric:tabular-nums}
+.age{display:inline-block;font-size:11px;font-weight:700;padding:2px 7px;border-radius:20px;font-variant-numeric:tabular-nums}
+.age-ok{background:#DCFCE7;color:#15803D}
+.age-warm{background:#FEF3C7;color:#B45309}
+.age-hot{background:#FEE2E2;color:#B91C1C}
+.age-none{background:none;color:var(--grey);font-weight:400}
+
+/* Abschnitts-Label + Team-Kacheln */
+.section-lbl{font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--grey);
+  font-weight:700;margin:20px 0 9px}
+.teamgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:11px;margin-bottom:6px}
+.teamcard{background:#fff;border:1px solid var(--line);border-radius:11px;padding:12px 14px;cursor:pointer;
+  transition:border-color .12s,box-shadow .12s}
+.teamcard:hover{border-color:var(--teal);box-shadow:0 3px 10px rgba(15,118,110,.12)}
+.tc-head{display:flex;align-items:center;font-weight:700;color:var(--ink);font-size:14px}
+.tc-role{font-size:11.5px;color:var(--grey);margin:2px 0 8px}
+.tc-stats{font-size:12.5px;color:var(--slate);font-variant-numeric:tabular-nums}
+
 /* ── App layout ── */
 .app{display:flex;height:100%}
 .sidebar{width:230px;flex:0 0 230px;background:var(--ink);color:#cbd5e1;

@@ -5,7 +5,7 @@
 create table if not exists bereiche (
   id           bigint generated always as identity primary key,
   name         text not null unique,
-  gruppe       text not null check (gruppe in ('SN','RM','MZ')),  -- Farb-Tier (Management/Senior/Junior)
+  gruppe       text not null check (gruppe in ('SN','RM','MZ','TR')),  -- Farb-Tier (Mgmt/Senior/Junior/Trainee)
   rolle        text,          -- z.B. Regional Manager, Seniorberater, Juniorberater
   parent_id    bigint references bereiche(id) on delete set null,  -- übergeordnete FK (Hierarchie)
   quartalsziel numeric not null default 0,
@@ -27,6 +27,7 @@ create table if not exists eintraege (
   monat         text,          -- 'YYYY-MM' — Monat der Auswertung
   status        text not null default 'offen',   -- offen / kunde / abgelehnt
   ablehnungsgrund text,        -- bei status=abgelehnt (→ Recycling)
+  erfasst_am    date,          -- seit wann auf der Liste (Lead-Alter)
   potenzial     numeric not null default 0,
   datum         text,          -- Freitext (Excel enthält "offen", "01.02." etc.)
   terminart     text,          -- S1/S2/S3/Service/AEC/TzT/Recruiting oder frei
