@@ -73,6 +73,13 @@ tr.is-kunde td{background:#DCFCE733!important}
   border-radius:20px;padding:5px 11px;font-size:12.5px;color:var(--ink);text-decoration:none;cursor:pointer;font-weight:600}
 .cf-link:hover{border-color:var(--teal);color:var(--teal)}
 
+/* Übersicht: sticky Header, Hover, leere Zeilen dimmen, Baum-Marker */
+.dash-tbl thead th,.tbl thead th{position:sticky;top:0;z-index:2}
+.dash-tbl tbody tr:hover td,.tbl tbody tr:not(.subband):hover td{background:#e8f4f2!important}
+.row-dim td{opacity:.45}
+.row-dim:hover td{opacity:1}
+.tree{color:var(--grey);font-size:11px}
+
 /* ── App layout ── */
 .app{display:flex;height:100%}
 .sidebar{width:230px;flex:0 0 230px;background:var(--ink);color:#cbd5e1;

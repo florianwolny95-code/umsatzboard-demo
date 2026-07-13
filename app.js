@@ -184,7 +184,10 @@ async function showControlling() {
     const fq = fr.length ? Math.round(fk.length / fr.length * 100) : 0;
     const fg = fr.filter(r => r.status === 'offen').reduce((a, r) => a + num(r.potenzial) * (STUFE_WK[r.terminart] || 0.2), 0);
     const tr = el('tr');
-    const nt = el('td'); nt.style.paddingLeft = (12 + Math.max(0, fkDepth(b) - base) * 18) + 'px';
+    if (!fr.length) tr.classList.add('row-dim');
+    const depth = Math.max(0, fkDepth(b) - base);
+    const nt = el('td'); nt.style.paddingLeft = (12 + depth * 18) + 'px';
+    if (depth) nt.appendChild(el('span', 'tree', '└ '));
     nt.appendChild(el('span', 'dot ' + b.gruppe)); const ln = el('a', 'name', ' ' + b.name); ln.onclick = () => go(() => showFk(b.id)); nt.appendChild(ln); tr.appendChild(nt);
     tr.appendChild(el('td', 'rolle', b.rolle || '—'));
     tr.appendChild(el('td', 'num', fr.length));
@@ -213,13 +216,21 @@ async function showMonat() {
   v.appendChild(el('div', 'pillinfo', rows.length + ' Interessenten · ' + kunden + ' Kunde · ' + abg + ' abgelehnt · ' + (rows.length - kunden - abg) + ' offen'));
 
   const t = el('table', 'tbl');
-  t.innerHTML = '<thead><tr><th>Interessent</th>' + (isAdmin() ? '<th>Führungskraft</th>' : '') +
-    '<th>Berater</th><th>Terminart</th><th class="num">Potenzial €</th><th>Status</th><th>Grund</th></tr></thead>';
+  t.innerHTML = '<thead><tr><th>Interessent</th><th>Berater</th><th>Terminart</th>' +
+    '<th class="num">Potenzial €</th><th>Status</th><th>Grund</th></tr></thead>';
   const tb = el('tbody');
+  const showBands = visibleFks().length > 1;
+  let lastFk = null;
   for (const r of rows) {
+    if (showBands && r.bereich_id !== lastFk) {
+      lastFk = r.bereich_id;
+      const band = el('tr', 'subband'); const td = el('td'); td.colSpan = 6;
+      const b = BEREICHE.find(x => x.id === r.bereich_id);
+      td.textContent = '⬧  ' + fkName(r.bereich_id).toUpperCase() + (b && b.rolle ? '  ·  ' + b.rolle : '');
+      band.appendChild(td); tb.appendChild(band);
+    }
     const tr = el('tr'); if (r.status === 'kunde') tr.classList.add('is-kunde');
     tr.appendChild(el('td', null, r.kunde || '—'));
-    if (isAdmin()) tr.appendChild(el('td', null, fkName(r.bereich_id)));
     tr.appendChild(el('td', null, subName(subs, r.sub_leiter_id)));
     tr.appendChild(el('td', null, r.terminart || '—'));
     tr.appendChild(el('td', 'num', eur(num(r.potenzial))));

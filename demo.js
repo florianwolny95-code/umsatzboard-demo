@@ -1,7 +1,7 @@
 /* Demo-Modus: ersetzt Supabase durch localStorage (kein Login, kein Server).
    Aktiv, wenn config.js keine echten Zugangsdaten hat. Beispieldaten (fiktiv). */
 globalThis.DemoDB = (function () {
-  const KEY = 'umsatzboard_demo_v4';
+  const KEY = 'umsatzboard_demo_v5';
   let store = null;
 
   function seed() {
@@ -45,18 +45,47 @@ globalThis.DemoDB = (function () {
         { id: 19, bereich_id: 10, name: 'Niklas F.', sortierung: 10 },
         { id: 20, bereich_id: 11, name: 'Nick A.', sortierung: 10 },
       ],
-      // Beispiel-Interessenten (aktueller Monat 2026-07 + zwei Vormonat 2026-06 fürs Recycling)
+      // Beispiel-Interessenten über 3 Monate (Mai–Juli 2026) — Kunden fiktiv.
+      // Juli = laufender Monat, Juni/Mai gefüllt für Monatsauswertung + Recycling.
       eintraege: [
-        { id: 1, bereich_id: 3, sub_leiter_id: 1, kunde: 'Familie Berg', monat: '2026-07', status: 'offen', ablehnungsgrund: null, potenzial: 60000, datum: '', terminart: 'S2', notiz: '', sortierung: 10 },
-        { id: 2, bereich_id: 4, sub_leiter_id: 5, kunde: 'Dr. Ott', monat: '2026-07', status: 'kunde', ablehnungsgrund: null, potenzial: 90000, datum: '', terminart: 'S3', notiz: '', sortierung: 10 },
-        { id: 3, bereich_id: 4, sub_leiter_id: 7, kunde: 'Sabine Lux', monat: '2026-07', status: 'offen', ablehnungsgrund: null, potenzial: 20000, datum: '', terminart: 'S1', notiz: '', sortierung: 20 },
-        { id: 4, bereich_id: 4, sub_leiter_id: null, kunde: 'Empfehlung Weber', monat: '2026-07', status: 'kunde', ablehnungsgrund: null, potenzial: 40000, datum: '', terminart: 'Service', notiz: '', sortierung: 5 },
-        { id: 5, bereich_id: 8, sub_leiter_id: 10, kunde: 'Bau Nord GmbH', monat: '2026-07', status: 'kunde', ablehnungsgrund: null, potenzial: 120000, datum: '', terminart: 'S3', notiz: '', sortierung: 10 },
-        { id: 6, bereich_id: 5, sub_leiter_id: 9, kunde: 'Praxis Sonne', monat: '2026-07', status: 'offen', ablehnungsgrund: null, potenzial: 80000, datum: '', terminart: 'S2', notiz: '', sortierung: 10 },
-        { id: 7, bereich_id: 9, sub_leiter_id: 14, kunde: 'Familie Adler', monat: '2026-06', status: 'abgelehnt', ablehnungsgrund: 'Kein Budget', potenzial: 15000, datum: '', terminart: 'S1', notiz: '', sortierung: 10 },
-        { id: 8, bereich_id: 10, sub_leiter_id: 19, kunde: 'Klein AG', monat: '2026-07', status: 'offen', ablehnungsgrund: null, potenzial: 50000, datum: '', terminart: 'S2', notiz: '', sortierung: 10 },
-        { id: 9, bereich_id: 11, sub_leiter_id: 20, kunde: 'Neuer Lead', monat: '2026-07', status: 'offen', ablehnungsgrund: null, potenzial: 10000, datum: '', terminart: 'S1', notiz: '', sortierung: 10 },
-        { id: 10, bereich_id: 3, sub_leiter_id: 2, kunde: 'Familie Moor', monat: '2026-06', status: 'abgelehnt', ablehnungsgrund: 'Zeitpunkt', potenzial: 0, datum: '', terminart: 'S1', notiz: '', sortierung: 20 },
+        // ── Juli 2026 ──
+        { id: 1, bereich_id: 3, sub_leiter_id: 1, kunde: 'Familie Berger', monat: '2026-07', status: 'offen', ablehnungsgrund: null, potenzial: 60000, datum: '', terminart: 'S2', notiz: '', sortierung: 10 },
+        { id: 2, bereich_id: 3, sub_leiter_id: 2, kunde: 'Dr. Krause', monat: '2026-07', status: 'kunde', ablehnungsgrund: null, potenzial: 120000, datum: '', terminart: 'S3', notiz: 'Depot-Optimierung', sortierung: 20 },
+        { id: 3, bereich_id: 3, sub_leiter_id: 3, kunde: 'Sanitär Voss GmbH', monat: '2026-07', status: 'offen', ablehnungsgrund: null, potenzial: 45000, datum: '', terminart: 'S1', notiz: '', sortierung: 30 },
+        { id: 4, bereich_id: 3, sub_leiter_id: null, kunde: 'Empfehlung Weber', monat: '2026-07', status: 'kunde', ablehnungsgrund: null, potenzial: 40000, datum: '', terminart: 'Service', notiz: '', sortierung: 5 },
+        { id: 5, bereich_id: 4, sub_leiter_id: 5, kunde: 'Familie Ott', monat: '2026-07', status: 'kunde', ablehnungsgrund: null, potenzial: 90000, datum: '', terminart: 'S3', notiz: '', sortierung: 10 },
+        { id: 6, bereich_id: 4, sub_leiter_id: 6, kunde: 'Sabine Lux', monat: '2026-07', status: 'offen', ablehnungsgrund: null, potenzial: 20000, datum: '', terminart: 'S1', notiz: '', sortierung: 20 },
+        { id: 7, bereich_id: 4, sub_leiter_id: 7, kunde: 'Peter Hain', monat: '2026-07', status: 'offen', ablehnungsgrund: null, potenzial: 35000, datum: '', terminart: 'S2', notiz: '', sortierung: 30 },
+        { id: 8, bereich_id: 4, sub_leiter_id: 8, kunde: 'Praxis Dr. Sommer', monat: '2026-07', status: 'offen', ablehnungsgrund: null, potenzial: 110000, datum: '', terminart: 'S3', notiz: 'Praxisfinanzierung', sortierung: 40 },
+        { id: 9, bereich_id: 5, sub_leiter_id: 9, kunde: 'Handwerk Nord GmbH', monat: '2026-07', status: 'offen', ablehnungsgrund: null, potenzial: 150000, datum: '', terminart: 'S2', notiz: '', sortierung: 10 },
+        { id: 10, bereich_id: 5, sub_leiter_id: null, kunde: 'Familie Brandt', monat: '2026-07', status: 'kunde', ablehnungsgrund: null, potenzial: 55000, datum: '', terminart: 'S3', notiz: '', sortierung: 5 },
+        { id: 11, bereich_id: 6, sub_leiter_id: 13, kunde: 'Jonas Weber', monat: '2026-07', status: 'offen', ablehnungsgrund: null, potenzial: 15000, datum: '', terminart: 'S1', notiz: 'Berufsstart', sortierung: 10 },
+        { id: 12, bereich_id: 7, sub_leiter_id: null, kunde: 'Autohaus Krüger', monat: '2026-07', status: 'offen', ablehnungsgrund: null, potenzial: 95000, datum: '', terminart: 'S2', notiz: '', sortierung: 10 },
+        { id: 13, bereich_id: 8, sub_leiter_id: 10, kunde: 'Bau Süd GmbH', monat: '2026-07', status: 'kunde', ablehnungsgrund: null, potenzial: 120000, datum: '', terminart: 'S3', notiz: '', sortierung: 10 },
+        { id: 14, bereich_id: 8, sub_leiter_id: 11, kunde: 'Familie Winter', monat: '2026-07', status: 'offen', ablehnungsgrund: null, potenzial: 30000, datum: '', terminart: 'S1', notiz: '', sortierung: 20 },
+        { id: 15, bereich_id: 9, sub_leiter_id: 14, kunde: 'Familie Albrecht', monat: '2026-07', status: 'offen', ablehnungsgrund: null, potenzial: 25000, datum: '', terminart: 'S2', notiz: '', sortierung: 10 },
+        { id: 16, bereich_id: 9, sub_leiter_id: 15, kunde: 'Kita Sonnenschein', monat: '2026-07', status: 'offen', ablehnungsgrund: null, potenzial: 40000, datum: '', terminart: 'S1', notiz: '', sortierung: 20 },
+        { id: 17, bereich_id: 9, sub_leiter_id: 16, kunde: 'Marco Diehl', monat: '2026-07', status: 'kunde', ablehnungsgrund: null, potenzial: 20000, datum: '', terminart: 'S3', notiz: '', sortierung: 30 },
+        { id: 18, bereich_id: 10, sub_leiter_id: 19, kunde: 'Klein AG', monat: '2026-07', status: 'offen', ablehnungsgrund: null, potenzial: 50000, datum: '', terminart: 'S2', notiz: '', sortierung: 10 },
+        { id: 19, bereich_id: 11, sub_leiter_id: 20, kunde: 'Lead Empfehlung März', monat: '2026-07', status: 'offen', ablehnungsgrund: null, potenzial: 10000, datum: '', terminart: 'S1', notiz: '', sortierung: 10 },
+        { id: 20, bereich_id: 2, sub_leiter_id: null, kunde: 'Steuerbüro Lenz', monat: '2026-07', status: 'kunde', ablehnungsgrund: null, potenzial: 80000, datum: '', terminart: 'AEC', notiz: '', sortierung: 10 },
+        // ── Juni 2026 ──
+        { id: 21, bereich_id: 3, sub_leiter_id: 2, kunde: 'Familie Moor', monat: '2026-06', status: 'abgelehnt', ablehnungsgrund: 'Zeitpunkt', potenzial: 0, datum: '', terminart: 'S1', notiz: '', sortierung: 10 },
+        { id: 22, bereich_id: 3, sub_leiter_id: 1, kunde: 'Ilka Brenner', monat: '2026-06', status: 'kunde', ablehnungsgrund: null, potenzial: 70000, datum: '', terminart: 'S3', notiz: '', sortierung: 20 },
+        { id: 23, bereich_id: 4, sub_leiter_id: 5, kunde: 'Familie Weiß', monat: '2026-06', status: 'abgelehnt', ablehnungsgrund: 'Nicht erreichbar', potenzial: 90000, datum: '', terminart: 'S1', notiz: '', sortierung: 10 },
+        { id: 24, bereich_id: 4, sub_leiter_id: 6, kunde: 'Erik Manns', monat: '2026-06', status: 'kunde', ablehnungsgrund: null, potenzial: 25000, datum: '', terminart: 'TzT', notiz: '', sortierung: 20 },
+        { id: 25, bereich_id: 5, sub_leiter_id: 9, kunde: 'Büro May', monat: '2026-06', status: 'kunde', ablehnungsgrund: null, potenzial: 45000, datum: '', terminart: 'Service', notiz: '', sortierung: 10 },
+        { id: 26, bereich_id: 6, sub_leiter_id: null, kunde: 'Zahnarzt Dr. Ruth', monat: '2026-06', status: 'abgelehnt', ablehnungsgrund: 'Kein Interesse', potenzial: 60000, datum: '', terminart: 'S1', notiz: '', sortierung: 10 },
+        { id: 27, bereich_id: 7, sub_leiter_id: null, kunde: 'Gasthof Linde', monat: '2026-06', status: 'abgelehnt', ablehnungsgrund: 'Konkurrenz', potenzial: 40000, datum: '', terminart: 'S2', notiz: '', sortierung: 10 },
+        { id: 28, bereich_id: 8, sub_leiter_id: 12, kunde: 'Familie Sturm', monat: '2026-06', status: 'kunde', ablehnungsgrund: null, potenzial: 65000, datum: '', terminart: 'S3', notiz: '', sortierung: 10 },
+        { id: 29, bereich_id: 9, sub_leiter_id: 14, kunde: 'Familie Adler', monat: '2026-06', status: 'abgelehnt', ablehnungsgrund: 'Kein Budget', potenzial: 15000, datum: '', terminart: 'S1', notiz: '', sortierung: 20 },
+        { id: 30, bereich_id: 10, sub_leiter_id: 19, kunde: 'Familie Wolter', monat: '2026-06', status: 'kunde', ablehnungsgrund: null, potenzial: 35000, datum: '', terminart: 'S3', notiz: '', sortierung: 20 },
+        // ── Mai 2026 ──
+        { id: 31, bereich_id: 3, sub_leiter_id: null, kunde: 'Familie Steiner', monat: '2026-05', status: 'kunde', ablehnungsgrund: null, potenzial: 85000, datum: '', terminart: 'S3', notiz: '', sortierung: 10 },
+        { id: 32, bereich_id: 5, sub_leiter_id: 9, kunde: 'Physio Vital', monat: '2026-05', status: 'abgelehnt', ablehnungsgrund: 'Vertagt', potenzial: 30000, datum: '', terminart: 'S2', notiz: '', sortierung: 10 },
+        { id: 33, bereich_id: 9, sub_leiter_id: 17, kunde: 'Familie Kaminski', monat: '2026-05', status: 'kunde', ablehnungsgrund: null, potenzial: 40000, datum: '', terminart: 'S3', notiz: '', sortierung: 10 },
+        { id: 34, bereich_id: 4, sub_leiter_id: 8, kunde: 'Malermeister Timm', monat: '2026-05', status: 'abgelehnt', ablehnungsgrund: 'Kein Bedarf', potenzial: 20000, datum: '', terminart: 'S1', notiz: '', sortierung: 20 },
+        { id: 35, bereich_id: 8, sub_leiter_id: 10, kunde: 'Familie Reuter', monat: '2026-05', status: 'kunde', ablehnungsgrund: null, potenzial: 50000, datum: '', terminart: 'S3', notiz: '', sortierung: 20 },
       ],
     };
   }
