@@ -10,6 +10,9 @@ const STATUS = ['offen', 'kunde', 'abgelehnt'];
 const STATUS_LABEL = { offen: '○ Offen', kunde: '✓ Kunde', abgelehnt: '✕ Abgelehnt' };
 const STUFE_WK = { S1: 0.1, S2: 0.4, S3: 0.7, Service: 0.5, AEC: 0.3 };   // Wahrscheinlichkeit für gewichtete Pipeline
 const MONATE = ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember'];
+const KOMPASS_URL = 'https://wolny-tools.vercel.app/tools/av-depot-kompass.html';   // internes Beratungs-Tool (Login „beratung")
+const AV_STATUS = ['offen', 'angesprochen', 'eroeffnet', 'kein_interesse'];
+const AV_LABEL = { offen: '○ Offen', angesprochen: '◔ Angesprochen', eroeffnet: '✓ Depot eröffnet', kein_interesse: '✕ Kein Interesse' };
 
 const $ = s => document.querySelector(s);
 const el = (t, c, txt) => { const e = document.createElement(t); if (c) e.className = c; if (txt != null) e.textContent = txt; return e; };
@@ -28,6 +31,7 @@ let viewer = { role: 'admin', fkId: null };
 let currentMonat = new Date().toISOString().slice(0, 7);
 let currentView = showControlling, curName = 'controlling';
 let showAllNodes = false;
+let boardTab = 'pipeline';   // 'pipeline' | 'avdepot'
 let realtimeCh = null;
 
 /* ── Auth ──────────────────────────────────────────────────────────── */
@@ -300,12 +304,21 @@ async function showRecycling() {
 async function showFk(id) {
   curName = 'fk:' + id; renderNav();
   const b = BEREICHE.find(x => x.id === id); if (!b) return;
+  const v = $('#view'); v.innerHTML = '';
+  v.appendChild(header((b.rolle || 'MITARBEITER').toUpperCase(), b.name,
+    boardTab === 'avdepot' ? 'Kampagne · Privates Altersvorsorgedepot' : 'Planung ' + monthLabel(currentMonat) + ' · Interessenten pflegen', b.gruppe));
+  const tabs = el('div', 'tabbar');
+  const mk = (key, label) => { const t = el('button', 'tab' + (boardTab === key ? ' active' : ''), label); t.onclick = () => { boardTab = key; showFk(id); }; return t; };
+  tabs.append(mk('pipeline', 'Interessenten-Pipeline'), mk('avdepot', '🎯 Privates Altersvorsorgedepot'));
+  v.appendChild(tabs);
+  if (boardTab === 'avdepot') return renderAvdepot(v, b);
+  return renderPipeline(v, b, id);
+}
+
+async function renderPipeline(v, b, id) {
   const { data: all } = await sb.from('eintraege').select('*');
   const monthRows = (all || []).filter(r => r.monat === currentMonat);
   const own = monthRows.filter(r => r.bereich_id === id).sort(byAge);
-  const v = $('#view'); v.innerHTML = '';
-  v.appendChild(header((b.rolle || 'MITARBEITER').toUpperCase(), b.name,
-    'Planung ' + monthLabel(currentMonat) + ' · Interessenten pflegen, Status setzen', b.gruppe));
   v.appendChild(monthNav());
 
   // Hierarchie: übergeordnete Person ändern
@@ -358,6 +371,61 @@ async function showFk(id) {
   right.appendChild(el('span', 'sub-val', 'davon Kunde: ' + eur(kundeUms) + (oldest ? '  ·  ältester Lead: ' + daysSince(oldest.erfasst_am) + ' Tage' : '')));
   g.appendChild(right);
   v.appendChild(g);
+}
+
+/* ── Privates Altersvorsorgedepot (Kampagnen-Liste je Person) ──────── */
+async function renderAvdepot(v, b) {
+  const { data: all } = await sb.from('avdepot').select('*');
+  const list = (all || []).filter(r => r.bereich_id === b.id).sort(byAge);
+
+  const box = el('div', 'av-intro');
+  box.appendChild(el('p', 'av-lead', 'Kampagne: private Altersvorsorgedepots aufbauen. Trag hier deine Kandidaten ein und arbeite die Liste ab — mit dem Kompass rechnest du im Gespräch den Vorteil vor.'));
+  const link = el('a', 'btn av-kompass', '🧭 AV-Depot Kompass öffnen'); link.href = KOMPASS_URL; link.target = '_blank'; link.rel = 'noopener';
+  box.appendChild(link);
+  box.appendChild(el('span', 'av-hint', 'Öffnet das Beratungs-Tool (Login „beratung").'));
+  v.appendChild(box);
+
+  const t = el('table', 'tbl');
+  t.innerHTML = '<thead><tr><th>Kunde / Kandidat</th><th>Status</th><th>Auf Liste seit</th><th>Notiz</th><th class="col-del"></th></tr></thead>';
+  const tb = el('tbody');
+  for (const r of list) tb.appendChild(avRowEl(r));
+  avAddLine(tb, b.id);
+  t.appendChild(tb); v.appendChild(t);
+
+  const eroeffnet = list.filter(r => r.status === 'eroeffnet').length;
+  const g = el('div', 'gesamt');
+  g.appendChild(el('span', 'lbl', 'AV-DEPOT KAMPAGNE'));
+  const right = el('div', 'gesamt-right');
+  right.appendChild(el('span', 'val', list.length + ' Kandidaten'));
+  right.appendChild(el('span', 'sub-val', eroeffnet + ' Depot eröffnet · ' + list.filter(r => r.status === 'offen').length + ' offen'));
+  g.appendChild(right); v.appendChild(g);
+}
+function avRowEl(r) {
+  const tr = el('tr'); if (r.status === 'eroeffnet') tr.classList.add('is-kunde');
+  const c1 = el('td'); const i1 = el('input'); i1.value = r.kunde ?? ''; i1.placeholder = 'Name…'; i1.onchange = () => saveTbl('avdepot', r.id, 'kunde', i1.value); c1.appendChild(i1); tr.appendChild(c1);
+  const c2 = el('td'); const s = el('select', 'statussel av-' + (r.status || 'offen'));
+  for (const st of AV_STATUS) { const o = el('option', null, AV_LABEL[st]); o.value = st; if ((r.status || 'offen') === st) o.selected = true; s.appendChild(o); }
+  s.onchange = async () => { await saveTbl('avdepot', r.id, 'status', s.value); rerenderCurrent(); };
+  c2.appendChild(s); tr.appendChild(c2);
+  const c3 = el('td', 'seit'); const di = el('input'); di.type = 'date'; di.value = r.erfasst_am || '';
+  di.onchange = () => { saveTbl('avdepot', r.id, 'erfasst_am', di.value || null); r.erfasst_am = di.value; c3.querySelector('.age').replaceWith(ageBadge(di.value)); };
+  c3.append(di, ageBadge(r.erfasst_am)); tr.appendChild(c3);
+  const c4 = el('td'); const i4 = el('input'); i4.value = r.notiz ?? ''; i4.onchange = () => saveTbl('avdepot', r.id, 'notiz', i4.value); c4.appendChild(i4); tr.appendChild(c4);
+  const del = el('td', 'col-del'); const bt = el('button', 'del-btn', '✕'); bt.onclick = async () => { await sb.from('avdepot').delete().eq('id', r.id); rerenderCurrent(); }; del.appendChild(bt); tr.appendChild(del);
+  return tr;
+}
+function avAddLine(tb, bereichId) {
+  const tr = el('tr'); const td = el('td'); td.colSpan = 5; td.style.padding = '4px';
+  const btn = el('button', 'add-line', '+ Kandidat'); btn.onclick = async () => {
+    const { data, error } = await sb.from('avdepot').insert({ bereich_id: bereichId, status: 'offen', erfasst_am: heute(), sortierung: Date.now() % 1e9 }).select().single();
+    if (error) return toast(error.message, true);
+    tb.insertBefore(avRowEl(data), tr); const f = tr.previousSibling.querySelector('input'); if (f) f.focus();
+  };
+  td.appendChild(btn); tr.appendChild(td); tb.appendChild(tr);
+}
+async function saveTbl(table, id, col, val) {
+  const { error } = await sb.from(table).update({ [col]: val }).eq('id', id);
+  if (error) toast('Speichern fehlgeschlagen: ' + error.message, true);
 }
 
 function rowEl(r) {
@@ -452,7 +520,7 @@ function subscribe() {
     rerenderCurrent();
   };
   realtimeCh = sb.channel('board');
-  for (const table of ['eintraege', 'bereiche'])
+  for (const table of ['eintraege', 'bereiche', 'avdepot'])
     realtimeCh.on('postgres_changes', { event: '*', schema: 'public', table }, rerender);
   realtimeCh.subscribe();
 }

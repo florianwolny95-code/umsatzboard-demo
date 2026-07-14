@@ -64,6 +64,20 @@ create table if not exists monatswerte (
   updated_by uuid references auth.users(id)
 );
 
+-- Kampagne „Privates Altersvorsorgedepot" — eigene Kandidatenliste je Person
+create table if not exists avdepot (
+  id         bigint generated always as identity primary key,
+  bereich_id bigint not null references bereiche(id) on delete cascade,
+  kunde      text,
+  status     text not null default 'offen',   -- offen / angesprochen / eroeffnet / kein_interesse
+  notiz      text,
+  erfasst_am date,
+  sortierung int not null default 0,
+  updated_at timestamptz not null default now(),
+  updated_by uuid references auth.users(id)
+);
+create index if not exists avdepot_bereich_idx on avdepot(bereich_id, sortierung);
+
 -- Rollen/Zuordnung: welcher User ist Admin, welche FK gehört ihm
 -- (Zeilen legst du im Supabase-Dashboard an: Authentication → User anlegen, dann hier eintragen.)
 create table if not exists profiles (
@@ -88,11 +102,12 @@ alter table sub_leiter  enable row level security;
 alter table eintraege   enable row level security;
 alter table termine     enable row level security;
 alter table monatswerte enable row level security;
+alter table avdepot     enable row level security;
 
 do $$
 declare t text;
 begin
-  foreach t in array array['bereiche','sub_leiter','eintraege','termine','monatswerte'] loop
+  foreach t in array array['bereiche','sub_leiter','eintraege','termine','monatswerte','avdepot'] loop
     execute format('drop policy if exists team_all on %I', t);
     execute format(
       'create policy team_all on %I for all to authenticated using (true) with check (true)', t);
@@ -103,7 +118,7 @@ end$$;
 do $$
 declare t text;
 begin
-  foreach t in array array['bereiche','sub_leiter','eintraege','termine','monatswerte'] loop
+  foreach t in array array['bereiche','sub_leiter','eintraege','termine','monatswerte','avdepot'] loop
     begin
       execute format('alter publication supabase_realtime add table %I', t);
     exception when duplicate_object then null;   -- schon drin → ignorieren

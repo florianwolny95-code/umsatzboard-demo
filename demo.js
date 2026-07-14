@@ -1,7 +1,7 @@
 /* Demo-Modus: ersetzt Supabase durch localStorage (kein Login, kein Server).
    Aktiv, wenn config.js keine echten Zugangsdaten hat. Beispieldaten (fiktiv). */
 globalThis.DemoDB = (function () {
-  const KEY = 'umsatzboard_demo_v6';
+  const KEY = 'umsatzboard_demo_v7';
   let store = null;
 
   function seed() {
@@ -85,12 +85,24 @@ globalThis.DemoDB = (function () {
         { id: 34, bereich_id: 19, kunde: 'Malermeister Timm', monat: '2026-05', status: 'abgelehnt', ablehnungsgrund: 'Kein Bedarf', potenzial: 20000, terminart: 'S1', erfasst_am: '2026-05-10', notiz: '', sortierung: 20 },
         { id: 35, bereich_id: 21, kunde: 'Familie Reuter', monat: '2026-05', status: 'kunde', ablehnungsgrund: null, potenzial: 50000, terminart: 'S3', erfasst_am: '2026-04-20', notiz: '', sortierung: 20 },
       ],
+      // Kampagne „Privates Altersvorsorgedepot" — eigene Kandidatenliste je Person
+      avdepot: [
+        { id: 1, bereich_id: 3, kunde: 'Familie Berger', status: 'angesprochen', erfasst_am: '2026-07-01', notiz: 'Riester vorhanden', sortierung: 10 },
+        { id: 2, bereich_id: 3, kunde: 'Dr. Krause', status: 'eroeffnet', erfasst_am: '2026-06-20', notiz: '', sortierung: 20 },
+        { id: 3, bereich_id: 4, kunde: 'Sabine Lux', status: 'offen', erfasst_am: '2026-07-05', notiz: '', sortierung: 10 },
+        { id: 4, bereich_id: 8, kunde: 'Bau Süd GmbH', status: 'angesprochen', erfasst_am: '2026-06-28', notiz: 'Geschäftsführer', sortierung: 10 },
+        { id: 5, bereich_id: 8, kunde: 'Familie Winter', status: 'kein_interesse', erfasst_am: '2026-06-15', notiz: 'hat schon ETF', sortierung: 20 },
+        { id: 6, bereich_id: 12, kunde: 'Ilka Brenner', status: 'offen', erfasst_am: '2026-07-08', notiz: '', sortierung: 10 },
+        { id: 7, bereich_id: 9, kunde: 'Kita Sonnenschein', status: 'angesprochen', erfasst_am: '2026-07-02', notiz: 'bAV-Anschluss', sortierung: 10 },
+        { id: 8, bereich_id: 2, kunde: 'Steuerbüro Lenz', status: 'eroeffnet', erfasst_am: '2026-06-10', notiz: '', sortierung: 10 },
+      ],
     };
   }
   const DEFAULTS = {
     bereiche: { rolle: '', gruppe: 'SN', parent_id: null, quartalsziel: 0, sortierung: 0 },
     sub_leiter: { sortierung: 0 },
     eintraege: { kunde: null, monat: null, status: 'offen', ablehnungsgrund: null, potenzial: 0, terminart: null, notiz: null, erfasst_am: null, sortierung: 0 },
+    avdepot: { kunde: null, status: 'offen', notiz: null, erfasst_am: null, sortierung: 0 },
   };
 
   function load() {
