@@ -1,7 +1,7 @@
 /* Demo-Modus: ersetzt Supabase durch localStorage (kein Login, kein Server).
    Aktiv, wenn config.js keine echten Zugangsdaten hat. Beispieldaten (fiktiv). */
 globalThis.DemoDB = (function () {
-  const KEY = 'umsatzboard_demo_v7';
+  const KEY = 'umsatzboard_demo_v8';
   let store = null;
 
   function seed() {
@@ -10,6 +10,7 @@ globalThis.DemoDB = (function () {
       // Namen als "Vorname + Nachname-Initial" (öffentliches Repo). sortierung = DFS-Reihenfolge.
       // gruppe = Farb-Tier: MZ(gold)=Management, SN(teal)=Senior, RM(lila)=Junior, TR(grau)=Trainee/Assistent.
       bereiche: [
+        { id: 32, name: 'Florian W.', rolle: 'Inhaber · Finanzierung', gruppe: 'MZ', parent_id: null, quartalsziel: 0, sortierung: 0 },
         { id: 1, name: 'Robert M.', rolle: 'Regional Manager', gruppe: 'MZ', parent_id: null, quartalsziel: 0, sortierung: 1 },
         { id: 2, name: 'Steve N.', rolle: 'Branch Manager', gruppe: 'MZ', parent_id: 1, quartalsziel: 0, sortierung: 2 },
         { id: 3, name: 'Maximilian Z.', rolle: 'Repräsentanzleiter', gruppe: 'MZ', parent_id: 2, quartalsziel: 0, sortierung: 3 },
@@ -96,6 +97,18 @@ globalThis.DemoDB = (function () {
         { id: 7, bereich_id: 9, kunde: 'Kita Sonnenschein', status: 'angesprochen', erfasst_am: '2026-07-02', notiz: 'bAV-Anschluss', sortierung: 10 },
         { id: 8, bereich_id: 2, kunde: 'Steuerbüro Lenz', status: 'eroeffnet', erfasst_am: '2026-06-10', notiz: '', sortierung: 10 },
       ],
+      // 30er-Liste / KPÜ — Kundenpotenzialübersicht je Person (Namen fiktiv)
+      kpue: [
+        { id: 1, bereich_id: 32, name: 'Familie Neumann', typ: 'kunde', prio: 'A', erfasst_am: '2026-06-01', notiz: 'Anschlussfinanzierung 2027', sortierung: 10 },
+        { id: 2, bereich_id: 32, name: 'Dr. Seifert', typ: 'interessent', prio: 'A', erfasst_am: '2026-06-20', notiz: 'Praxiskauf', sortierung: 20 },
+        { id: 3, bereich_id: 32, name: 'Julia Brandt', typ: 'potenzial', prio: 'B', erfasst_am: '2026-07-05', notiz: 'Empfehlung', sortierung: 30 },
+        { id: 4, bereich_id: 4, name: 'Familie Otte', typ: 'kunde', prio: 'B', erfasst_am: '2026-05-15', notiz: '', sortierung: 10 },
+        { id: 5, bereich_id: 4, name: 'Marc Lehner', typ: 'potenzial', prio: 'A', erfasst_am: '2026-07-01', notiz: 'Sportverein', sortierung: 20 },
+        { id: 6, bereich_id: 4, name: 'Tina Vogt', typ: 'interessent', prio: 'B', erfasst_am: '2026-06-25', notiz: '', sortierung: 30 },
+        { id: 7, bereich_id: 16, name: 'Kevin Roth', typ: 'potenzial', prio: 'C', erfasst_am: '2026-07-08', notiz: 'Studienkollege', sortierung: 10 },
+        { id: 8, bereich_id: 16, name: 'Laura Simon', typ: 'potenzial', prio: 'B', erfasst_am: '2026-07-10', notiz: '', sortierung: 20 },
+        { id: 9, bereich_id: 8, name: 'Bauunternehmen Falk', typ: 'interessent', prio: 'A', erfasst_am: '2026-06-12', notiz: 'über Bau Süd', sortierung: 10 },
+      ],
     };
   }
   const DEFAULTS = {
@@ -103,6 +116,7 @@ globalThis.DemoDB = (function () {
     sub_leiter: { sortierung: 0 },
     eintraege: { kunde: null, monat: null, status: 'offen', ablehnungsgrund: null, potenzial: 0, terminart: null, notiz: null, erfasst_am: null, sortierung: 0 },
     avdepot: { kunde: null, status: 'offen', notiz: null, erfasst_am: null, sortierung: 0 },
+    kpue: { name: null, typ: 'potenzial', prio: 'B', notiz: null, erfasst_am: null, sortierung: 0 },
   };
 
   function load() {

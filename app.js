@@ -11,8 +11,13 @@ const STATUS_LABEL = { offen: '○ Offen', kunde: '✓ Kunde', abgelehnt: '✕ A
 const STUFE_WK = { S1: 0.1, S2: 0.4, S3: 0.7, Service: 0.5, AEC: 0.3 };   // Wahrscheinlichkeit für gewichtete Pipeline
 const MONATE = ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember'];
 const KOMPASS_URL = 'https://wolny-tools.vercel.app/tools/av-depot-kompass.html';   // internes Beratungs-Tool (Login „beratung")
+const TOOLS_URL = 'https://wolny-tools.vercel.app/';                                 // Beratungstools-Portal
+const COCKPIT_URL = null;   // Finanzierungscockpit — Verknüpfung folgt, sobald es eine Live-URL hat
 const AV_STATUS = ['offen', 'angesprochen', 'eroeffnet', 'kein_interesse'];
 const AV_LABEL = { offen: '○ Offen', angesprochen: '◔ Angesprochen', eroeffnet: '✓ Depot eröffnet', kein_interesse: '✕ Kein Interesse' };
+const KPUE_TYP = ['potenzial', 'interessent', 'kunde'];
+const KPUE_LABEL = { potenzial: '◇ Potenziell', interessent: '○ Interessent', kunde: '✓ Kunde' };
+const KPUE_ZIEL = 30;   // klassische 30er-Liste
 
 const $ = s => document.querySelector(s);
 const el = (t, c, txt) => { const e = document.createElement(t); if (c) e.className = c; if (txt != null) e.textContent = txt; return e; };
@@ -134,10 +139,11 @@ function renderNav() {
   const item = (label, thunk, active) => { const a = el('a', 'dash' + (active ? ' active' : ''), label); a.onclick = () => go(thunk); nav.appendChild(a); };
   item('📊 Controlling', showControlling, curName === 'controlling');
   item('🗓 Monatsauswertung', showMonat, curName === 'monat');
+  item('🎯 AV-Kampagne', showKampagne, curName === 'kampagne');
   item('♻ Recycling', showRecycling, curName === 'recycling');
   const base = baseDepth();
-  // Nav zeigt Führungskräfte (Knoten mit Team) + ggf. den eigenen Knoten; Einzel-Mitarbeiter erreicht man über Team-Kacheln.
-  const navNodes = visibleFks().filter(b => childrenFks(b.id).length > 0 || b.id === viewer.fkId);
+  // Nav zeigt Führungskräfte (Knoten mit Team), Wurzel-Knoten (z.B. Inhaber) + den eigenen Knoten.
+  const navNodes = visibleFks().filter(b => childrenFks(b.id).length > 0 || b.parent_id == null || b.id === viewer.fkId);
   for (const b of navNodes) {
     const a = el('a', curName === 'fk:' + b.id ? 'active' : '');
     a.style.paddingLeft = (11 + Math.max(0, fkDepth(b) - base) * 13) + 'px';
@@ -300,19 +306,95 @@ async function showRecycling() {
   if (!rec.length) v.appendChild(el('div', 'empty', 'Recycling ist leer — nichts abgelehnt.'));
 }
 
+/* ── AV-Kampagnenübersicht (Rollup über die Hierarchie) ────────────── */
+async function showKampagne() {
+  curName = 'kampagne'; renderNav();
+  const ids = visibleFks().map(b => b.id);
+  const { data: all } = await sb.from('avdepot').select('*');
+  const rows = (all || []).filter(r => ids.includes(r.bereich_id));
+  const v = $('#view'); v.innerHTML = '';
+  v.appendChild(header('KAMPAGNE', 'Privates Altersvorsorgedepot',
+    (isAdmin() ? 'Gesamte Organisation' : scopedName()) + ' · Kandidaten und eröffnete Depots je Team', 'gold'));
+
+  const er = rows.filter(r => r.status === 'eroeffnet');
+  const ang = rows.filter(r => r.status === 'angesprochen');
+  const kpis = el('div', 'kpis');
+  kpis.append(kpi('Kandidaten', rows.length), kpi('Angesprochen', ang.length),
+    kpi('Depots eröffnet', er.length),
+    kpi('Abschlussquote', rows.length ? Math.round(er.length / rows.length * 100) + ' %' : '—'));
+  v.appendChild(kpis);
+
+  const bar = el('div', 'toolbar');
+  const link = el('a', 'btn av-kompass', '🧭 AV-Depot Kompass öffnen'); link.href = KOMPASS_URL; link.target = '_blank'; link.rel = 'noopener';
+  bar.appendChild(link);
+  const lbl = el('label', 'pillinfo'); lbl.style.cssText = 'display:flex;align-items:center;gap:8px;cursor:pointer';
+  const cb = el('input'); cb.type = 'checkbox'; cb.checked = showAllNodes;
+  cb.onchange = () => { showAllNodes = cb.checked; rerenderCurrent(); };
+  lbl.append(cb, el('span', null, 'Alle Mitarbeiter zeigen · Zahlen rollen den Unterbau hoch'));
+  bar.appendChild(lbl); v.appendChild(bar);
+
+  const t = el('table', 'dash-tbl');
+  t.innerHTML = '<thead><tr><th>Mitarbeiter</th><th>Rolle</th><th class="num">Kandidaten</th>' +
+    '<th class="num">Angesprochen</th><th class="num">Eröffnet</th><th class="num">Kein Interesse</th><th class="num">Quote</th></tr></thead>';
+  const tb = el('tbody');
+  const scopeIds = ids; const base = baseDepth();
+  const tableNodes = visibleFks().filter(b => showAllNodes || childrenFks(b.id).length > 0 || b.parent_id == null || b.id === viewer.fkId);
+  for (const b of tableNodes) {
+    const sub = subtreeIds(b.id).filter(x => scopeIds.includes(x));
+    const fr = rows.filter(r => sub.includes(r.bereich_id));
+    const fe = fr.filter(r => r.status === 'eroeffnet').length;
+    const tr = el('tr');
+    if (!fr.length) tr.classList.add('row-dim');
+    const depth = Math.max(0, fkDepth(b) - base);
+    const nt = el('td'); nt.style.paddingLeft = (12 + depth * 18) + 'px';
+    if (depth) nt.appendChild(el('span', 'tree', '└ '));
+    nt.appendChild(el('span', 'dot ' + b.gruppe)); const ln = el('a', 'name', ' ' + b.name);
+    ln.onclick = () => { boardTab = 'avdepot'; go(() => showFk(b.id)); }; nt.appendChild(ln); tr.appendChild(nt);
+    tr.appendChild(el('td', 'rolle', b.rolle || '—'));
+    tr.appendChild(el('td', 'num', fr.length));
+    tr.appendChild(el('td', 'num', fr.filter(r => r.status === 'angesprochen').length));
+    const et = el('td', 'num', fe); et.style.color = fe ? '#15803D' : ''; et.style.fontWeight = fe ? '700' : ''; tr.appendChild(et);
+    tr.appendChild(el('td', 'num', fr.filter(r => r.status === 'kein_interesse').length));
+    tr.appendChild(el('td', 'num', fr.length ? Math.round(fe / fr.length * 100) + ' %' : '—'));
+    tb.appendChild(tr);
+  }
+  t.appendChild(tb); v.appendChild(t);
+  if (!rows.length) v.appendChild(el('div', 'empty', 'Noch keine Kampagnen-Kandidaten. Jeder trägt sie auf seinem Board im Reiter „Privates Altersvorsorgedepot" ein.'));
+}
+
 /* ── Mitarbeiter-Board (eigene Planung, monats-gescoped) ───────────── */
 async function showFk(id) {
   curName = 'fk:' + id; renderNav();
   const b = BEREICHE.find(x => x.id === id); if (!b) return;
   const v = $('#view'); v.innerHTML = '';
-  v.appendChild(header((b.rolle || 'MITARBEITER').toUpperCase(), b.name,
-    boardTab === 'avdepot' ? 'Kampagne · Privates Altersvorsorgedepot' : 'Planung ' + monthLabel(currentMonat) + ' · Interessenten pflegen', b.gruppe));
+  const subT = { pipeline: 'Planung ' + monthLabel(currentMonat) + ' · Interessenten pflegen', avdepot: 'Kampagne · Privates Altersvorsorgedepot', kpue: 'Kundenpotenzialübersicht · 30er-Liste' };
+  v.appendChild(header((b.rolle || 'MITARBEITER').toUpperCase(), b.name, subT[boardTab] || subT.pipeline, b.gruppe));
   const tabs = el('div', 'tabbar');
   const mk = (key, label) => { const t = el('button', 'tab' + (boardTab === key ? ' active' : ''), label); t.onclick = () => { boardTab = key; showFk(id); }; return t; };
-  tabs.append(mk('pipeline', 'Interessenten-Pipeline'), mk('avdepot', '🎯 Privates Altersvorsorgedepot'));
+  tabs.append(mk('pipeline', 'Interessenten-Pipeline'), mk('avdepot', '🎯 Privates Altersvorsorgedepot'), mk('kpue', '📇 30er-Liste (KPÜ)'));
   v.appendChild(tabs);
+  if (isInhaber(b)) renderToolLinks(v);
   if (boardTab === 'avdepot') return renderAvdepot(v, b);
+  if (boardTab === 'kpue') return renderKpue(v, b);
   return renderPipeline(v, b, id);
+}
+
+const isInhaber = b => (b.rolle || '').startsWith('Inhaber');
+
+/* Tool-Verknüpfungen (Inhaber-Board): Beratungstools, Kompass, Finanzierungscockpit */
+function renderToolLinks(v) {
+  const grid = el('div', 'toolgrid');
+  const card = (icon, name, sub, url) => {
+    const c = el(url ? 'a' : 'div', 'teamcard toolcard' + (url ? '' : ' toolcard-off'));
+    if (url) { c.href = url; c.target = '_blank'; c.rel = 'noopener'; }
+    const head = el('div', 'tc-head', icon + '  ' + name);
+    c.appendChild(head); c.appendChild(el('div', 'tc-role', sub));
+    return c;
+  };
+  grid.appendChild(card('🧰', 'Beratungstools', 'Portal öffnen (wolny-tools)', TOOLS_URL));
+  grid.appendChild(card('🧭', 'AV-Depot Kompass', 'Beratungs-Tool · Login „beratung"', KOMPASS_URL));
+  grid.appendChild(card('🏠', 'Finanzierungscockpit', COCKPIT_URL ? 'Cockpit öffnen' : 'Verknüpfung folgt', COCKPIT_URL));
+  v.appendChild(grid);
 }
 
 async function renderPipeline(v, b, id) {
@@ -428,6 +510,69 @@ async function saveTbl(table, id, col, val) {
   if (error) toast('Speichern fehlgeschlagen: ' + error.message, true);
 }
 
+/* ── 30er-Liste / KPÜ (Kundenpotenzialübersicht je Person) ─────────── */
+async function renderKpue(v, b) {
+  const { data: all } = await sb.from('kpue').select('*');
+  const list = (all || []).filter(r => r.bereich_id === b.id).sort((a, c) => (a.sortierung || 0) - (c.sortierung || 0));
+
+  const n = list.length, pct = Math.min(100, Math.round(n / KPUE_ZIEL * 100));
+  const box = el('div', 'av-intro');
+  const left = el('div', 'kpue-progress');
+  left.appendChild(el('div', 'kpue-count', n + ' / ' + KPUE_ZIEL));
+  const barOut = el('div', 'bar kpue-bar'); const sp = el('span'); sp.style.width = pct + '%';
+  if (n >= KPUE_ZIEL) sp.style.background = '#15803D';
+  barOut.appendChild(sp); left.appendChild(barOut);
+  box.appendChild(left);
+  box.appendChild(el('p', 'av-lead', 'Deine Kundenpotenzialübersicht: 30 Namen, mit denen du arbeitest — Kunden, Interessenten und mögliche Kontakte. Wird ein Name konkret, nimmst du ihn in die Monats-Pipeline auf.'));
+  v.appendChild(box);
+
+  const t = el('table', 'tbl');
+  t.innerHTML = '<thead><tr><th style="width:28px">#</th><th>Name</th><th>Typ</th><th>Prio</th><th>Auf Liste seit</th><th>Notiz</th><th class="col-del"></th></tr></thead>';
+  const tb = el('tbody');
+  list.forEach((r, i) => tb.appendChild(kpueRowEl(r, i + 1)));
+  kpueAddLine(tb, b.id);
+  t.appendChild(tb); v.appendChild(t);
+
+  const g = el('div', 'gesamt');
+  g.appendChild(el('span', 'lbl', '30ER-LISTE ' + b.name.toUpperCase()));
+  const right = el('div', 'gesamt-right');
+  right.appendChild(el('span', 'val', n + ' Namen'));
+  right.appendChild(el('span', 'sub-val',
+    list.filter(r => r.typ === 'kunde').length + ' Kunden · ' +
+    list.filter(r => r.typ === 'interessent').length + ' Interessenten · ' +
+    list.filter(r => (r.typ || 'potenzial') === 'potenzial').length + ' potenziell'));
+  g.appendChild(right); v.appendChild(g);
+}
+function kpueRowEl(r, nr) {
+  const tr = el('tr'); if (r.typ === 'kunde') tr.classList.add('is-kunde');
+  tr.appendChild(el('td', 'kpue-nr', String(nr)));
+  const c1 = el('td'); const i1 = el('input'); i1.value = r.name ?? ''; i1.placeholder = 'Name…'; i1.onchange = () => saveTbl('kpue', r.id, 'name', i1.value); c1.appendChild(i1); tr.appendChild(c1);
+  const c2 = el('td'); const s = el('select', 'statussel kp-' + (r.typ || 'potenzial'));
+  for (const ty of KPUE_TYP) { const o = el('option', null, KPUE_LABEL[ty]); o.value = ty; if ((r.typ || 'potenzial') === ty) o.selected = true; s.appendChild(o); }
+  s.onchange = async () => { await saveTbl('kpue', r.id, 'typ', s.value); rerenderCurrent(); };
+  c2.appendChild(s); tr.appendChild(c2);
+  const c3 = el('td'); const p = el('select', 'statussel prio-' + (r.prio || 'B'));
+  for (const pr of ['A', 'B', 'C']) { const o = el('option', null, pr); o.value = pr; if ((r.prio || 'B') === pr) o.selected = true; p.appendChild(o); }
+  p.onchange = async () => { await saveTbl('kpue', r.id, 'prio', p.value); rerenderCurrent(); };
+  c3.appendChild(p); tr.appendChild(c3);
+  const c4 = el('td', 'seit'); const di = el('input'); di.type = 'date'; di.value = r.erfasst_am || '';
+  di.onchange = () => { saveTbl('kpue', r.id, 'erfasst_am', di.value || null); r.erfasst_am = di.value; c4.querySelector('.age').replaceWith(ageBadge(di.value)); };
+  c4.append(di, ageBadge(r.erfasst_am)); tr.appendChild(c4);
+  const c5 = el('td'); const i5 = el('input'); i5.value = r.notiz ?? ''; i5.onchange = () => saveTbl('kpue', r.id, 'notiz', i5.value); c5.appendChild(i5); tr.appendChild(c5);
+  const del = el('td', 'col-del'); const bt = el('button', 'del-btn', '✕'); bt.onclick = async () => { await sb.from('kpue').delete().eq('id', r.id); rerenderCurrent(); }; del.appendChild(bt); tr.appendChild(del);
+  return tr;
+}
+function kpueAddLine(tb, bereichId) {
+  const tr = el('tr'); const td = el('td'); td.colSpan = 7; td.style.padding = '4px';
+  const btn = el('button', 'add-line', '+ Name'); btn.onclick = async () => {
+    const { data, error } = await sb.from('kpue').insert({ bereich_id: bereichId, typ: 'potenzial', prio: 'B', erfasst_am: heute(), sortierung: Date.now() % 1e9 }).select().single();
+    if (error) return toast(error.message, true);
+    const nr = [...tb.querySelectorAll('tr')].length;   // grob: laufende Nummer
+    tb.insertBefore(kpueRowEl(data, nr), tr); const f = tr.previousSibling.querySelector('input'); if (f) f.focus();
+  };
+  td.appendChild(btn); tr.appendChild(td); tb.appendChild(tr);
+}
+
 function rowEl(r) {
   const tr = el('tr'); if (r.status === 'kunde') tr.classList.add('is-kunde');
   tr.appendChild(cellInput(r, 'kunde', 'text'));
@@ -520,7 +665,7 @@ function subscribe() {
     rerenderCurrent();
   };
   realtimeCh = sb.channel('board');
-  for (const table of ['eintraege', 'bereiche', 'avdepot'])
+  for (const table of ['eintraege', 'bereiche', 'avdepot', 'kpue'])
     realtimeCh.on('postgres_changes', { event: '*', schema: 'public', table }, rerender);
   realtimeCh.subscribe();
 }

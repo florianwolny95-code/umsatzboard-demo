@@ -78,6 +78,21 @@ create table if not exists avdepot (
 );
 create index if not exists avdepot_bereich_idx on avdepot(bereich_id, sortierung);
 
+-- 30er-Liste / KPÜ — Kundenpotenzialübersicht je Person
+create table if not exists kpue (
+  id         bigint generated always as identity primary key,
+  bereich_id bigint not null references bereiche(id) on delete cascade,
+  name       text,
+  typ        text not null default 'potenzial',   -- potenzial / interessent / kunde
+  prio       text not null default 'B',           -- A / B / C
+  notiz      text,
+  erfasst_am date,
+  sortierung int not null default 0,
+  updated_at timestamptz not null default now(),
+  updated_by uuid references auth.users(id)
+);
+create index if not exists kpue_bereich_idx on kpue(bereich_id, sortierung);
+
 -- Rollen/Zuordnung: welcher User ist Admin, welche FK gehört ihm
 -- (Zeilen legst du im Supabase-Dashboard an: Authentication → User anlegen, dann hier eintragen.)
 create table if not exists profiles (
@@ -103,11 +118,12 @@ alter table eintraege   enable row level security;
 alter table termine     enable row level security;
 alter table monatswerte enable row level security;
 alter table avdepot     enable row level security;
+alter table kpue        enable row level security;
 
 do $$
 declare t text;
 begin
-  foreach t in array array['bereiche','sub_leiter','eintraege','termine','monatswerte','avdepot'] loop
+  foreach t in array array['bereiche','sub_leiter','eintraege','termine','monatswerte','avdepot','kpue'] loop
     execute format('drop policy if exists team_all on %I', t);
     execute format(
       'create policy team_all on %I for all to authenticated using (true) with check (true)', t);
@@ -118,7 +134,7 @@ end$$;
 do $$
 declare t text;
 begin
-  foreach t in array array['bereiche','sub_leiter','eintraege','termine','monatswerte','avdepot'] loop
+  foreach t in array array['bereiche','sub_leiter','eintraege','termine','monatswerte','avdepot','kpue'] loop
     begin
       execute format('alter publication supabase_realtime add table %I', t);
     exception when duplicate_object then null;   -- schon drin → ignorieren
@@ -128,6 +144,9 @@ end$$;
 
 -- ── Seed: Platzhalter-Führungskräfte, Hierarchie wie im echten Org (Namen bitte anpassen) ──
 -- Erst die oberste Ebene ohne parent, dann Stufe für Stufe (parent_id braucht die id der Zeile davor).
+insert into bereiche (name, rolle, gruppe, parent_id, quartalsziel, sortierung) values
+  ('Florian Wolny', 'Inhaber · Finanzierung', 'MZ', null, 0, 0)
+on conflict (name) do nothing;
 insert into bereiche (name, rolle, gruppe, parent_id, quartalsziel, sortierung) values
   ('FK Region 1', 'Regional Manager', 'MZ', null, 0, 1)
 on conflict (name) do nothing;

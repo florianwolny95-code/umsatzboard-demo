@@ -126,6 +126,27 @@ td.seit input[type=date]:focus{outline:none;border-color:var(--teal);background:
 .statussel.av-eroeffnet{background:#DCFCE7;color:#15803D}
 .statussel.av-kein_interesse{background:#FEE2E2;color:#B91C1C}
 
+/* 30er-Liste / KPÜ */
+.kpue-progress{display:flex;flex-direction:column;gap:6px;min-width:130px}
+.kpue-count{font-size:20px;font-weight:700;color:var(--ink);font-variant-numeric:tabular-nums}
+.kpue-bar{width:130px}
+.kpue-nr{color:var(--grey);font-size:11.5px;text-align:right;padding-right:8px!important;font-variant-numeric:tabular-nums}
+.statussel.kp-potenzial{background:var(--soft);color:var(--grey)}
+.statussel.kp-interessent{background:#DBEAFE;color:#1D4ED8}
+.statussel.kp-kunde{background:#DCFCE7;color:#15803D}
+.statussel.prio-A{background:#DCFCE7;color:#15803D}
+.statussel.prio-B{background:#FEF3C7;color:#B45309}
+.statussel.prio-C{background:var(--soft);color:var(--grey)}
+
+/* Tool-Verknüpfungen (Inhaber-Board) */
+.toolgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:11px;margin:2px 0 16px}
+.toolcard{text-decoration:none;display:block}
+.toolcard-off{opacity:.55;cursor:default}
+.toolcard-off:hover{border-color:var(--line);box-shadow:none}
+.sidebar-tools{display:block;text-align:center;background:#ffffff12;color:#e2e8f0;text-decoration:none;
+  padding:9px;border-radius:8px;font-size:12.5px}
+.sidebar-tools:hover{background:#ffffff22}
+
 /* ── App layout ── */
 .app{display:flex;height:100%}
 .sidebar{width:230px;flex:0 0 230px;background:var(--ink);color:#cbd5e1;
