@@ -106,6 +106,24 @@ create table if not exists ziele (
 );
 create index if not exists ziele_idx on ziele(jahr, monat);
 
+-- Volumenrechner: Positionen nach Systematik der tecis Anlage 4
+-- (Die Volumenfaktoren selbst stehen NICHT hier, sondern in tarife.local.js — vertraulich.)
+create table if not exists volumen (
+  id         bigint generated always as identity primary key,
+  bereich_id bigint not null references bereiche(id) on delete cascade,
+  monat      text,            -- 'YYYY-MM'
+  kunde      text,
+  tarif      text,            -- Name aus dem Tarifkatalog
+  betrag     numeric not null default 0,   -- Monatsbeitrag / Summe / Kaufpreis (je Formeltyp)
+  jahre      numeric not null default 0,   -- BZD bzw. Spardauer
+  einmal     numeric not null default 0,   -- Einmalanlage (Kombianlage)
+  satz       numeric not null default 0,   -- Provisionssatz % (Immobilienvermittlung)
+  sortierung int not null default 0,
+  updated_at timestamptz not null default now(),
+  updated_by uuid references auth.users(id)
+);
+create index if not exists volumen_bereich_idx on volumen(bereich_id, sortierung);
+
 -- Rollen/Zuordnung: welcher User ist Admin, welche FK gehört ihm
 -- (Zeilen legst du im Supabase-Dashboard an: Authentication → User anlegen, dann hier eintragen.)
 create table if not exists profiles (
@@ -133,11 +151,12 @@ alter table monatswerte enable row level security;
 alter table avdepot     enable row level security;
 alter table kpue        enable row level security;
 alter table ziele       enable row level security;
+alter table volumen     enable row level security;
 
 do $$
 declare t text;
 begin
-  foreach t in array array['bereiche','sub_leiter','eintraege','termine','monatswerte','avdepot','kpue','ziele'] loop
+  foreach t in array array['bereiche','sub_leiter','eintraege','termine','monatswerte','avdepot','kpue','ziele','volumen'] loop
     execute format('drop policy if exists team_all on %I', t);
     execute format(
       'create policy team_all on %I for all to authenticated using (true) with check (true)', t);
@@ -148,7 +167,7 @@ end$$;
 do $$
 declare t text;
 begin
-  foreach t in array array['bereiche','sub_leiter','eintraege','termine','monatswerte','avdepot','kpue','ziele'] loop
+  foreach t in array array['bereiche','sub_leiter','eintraege','termine','monatswerte','avdepot','kpue','ziele','volumen'] loop
     begin
       execute format('alter publication supabase_realtime add table %I', t);
     exception when duplicate_object then null;   -- schon drin → ignorieren

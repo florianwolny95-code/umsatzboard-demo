@@ -168,6 +168,14 @@ input.ziel-jahr:focus,input.ziel-mon:focus{outline:none;border-color:var(--teal)
 .ziel-team{font-size:10.5px;color:var(--grey);text-align:right;margin-top:1px}
 .gesamt-valrow{display:flex;align-items:center;gap:10px;justify-content:flex-end}
 
+/* Volumenrechner */
+.vol-tbl select.vol-tarif{width:100%;min-width:230px;border:1px solid var(--line);border-radius:6px;
+  padding:6px 5px;font-size:12.5px;background:#fff;color:var(--slate)}
+.vol-tbl td.num input{text-align:right;font-variant-numeric:tabular-nums}
+.vol-tbl td.num input:disabled{background:transparent;color:var(--line);cursor:default}
+.vol-erg{font-weight:700;color:var(--ink);font-variant-numeric:tabular-nums;white-space:nowrap}
+.pillinfo.warn{background:#FEF3C7;border-color:#FDE68A;color:#B45309}
+
 /* ── App layout ── */
 .app{display:flex;height:100%}
 .sidebar{width:230px;flex:0 0 230px;background:var(--ink);color:#cbd5e1;

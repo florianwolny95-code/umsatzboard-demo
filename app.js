@@ -186,6 +186,7 @@ function renderNav() {
   const item = (label, thunk, active) => { const a = el('a', 'dash' + (active ? ' active' : ''), label); a.onclick = () => go(thunk); nav.appendChild(a); };
   item('📊 Controlling', showControlling, curName === 'controlling');
   item('🎯 Ziele & Planung', showZiele, curName === 'ziele');
+  item('🧮 Volumenrechner', showVolumen, curName === 'volumen');
   item('🗓 Monatsauswertung', showMonat, curName === 'monat');
   item('🚀 AV-Kampagne', showKampagne, curName === 'kampagne');
   item('♻ Recycling', showRecycling, curName === 'recycling');
@@ -362,6 +363,117 @@ async function showRecycling() {
   }
   t.appendChild(tb); v.appendChild(t);
   if (!rec.length) v.appendChild(el('div', 'empty', 'Recycling ist leer — nichts abgelehnt.'));
+}
+
+/* ── Volumenrechner (Systematik tecis Anlage 4) ────────────────────── */
+const tarife = () => window.TARIFE || [];
+// Volumen einer Position nach Formeltyp der Anlage 4
+function volumen(t, p) {
+  if (!t) return 0;
+  const b = num(p.betrag), j = num(p.jahre), e = num(p.einmal), f = num(t.faktor) || 0;
+  switch (t.typ) {
+    case 'bs':        return b * 12 * Math.min(j, t.bzdMax || j) * f;        // Beitragssumme, BZD maximiert
+    case 'einmal':    return b * f;                                           // Einmalbeitrag/Zeichnungssumme
+    case 'mb':        return b * f;                                           // Monatsbeitrag × Faktor (PKV)
+    case 'jnb':       return b * 12 * f;                                      // Jahresnettobeitrag
+    case 'nb':        return b * f;                                           // Nettobeitrag
+    case 'sparplan':  return (b * 12 * j + e) * f;                            // Rate × Dauer (+ Einmalanlage)
+    case 'summe':     return b * (num(t.bewertung) || 1) * f;                 // Darlehen/Bauspar × Bewertungsfaktor
+    case 'kaufpreis': return b * (num(p.satz) / 100) * f;                     // Kaufpreis × Provisionssatz %
+    default:          return 0;
+  }
+}
+const TYP_FELDER = {   // welche Eingaben ein Typ braucht
+  bs:        { betrag: 'Monatsbeitrag €', jahre: 'BZD (Jahre)' },
+  einmal:    { betrag: 'Einmalbetrag €' },
+  mb:        { betrag: 'Monatsbeitrag €' },
+  jnb:       { betrag: 'Monatsbeitrag €' },
+  nb:        { betrag: 'Nettobeitrag €' },
+  sparplan:  { betrag: 'Sparrate €', jahre: 'Dauer (Jahre)', einmal: 'Einmalanlage €' },
+  summe:     { betrag: 'Darlehens-/Bausparsumme €' },
+  kaufpreis: { betrag: 'Kaufpreis €', satz: 'Provision %' },
+};
+
+async function showVolumen() {
+  curName = 'volumen'; renderNav();
+  const { data: all } = await sb.from('volumen').select('*');
+  const ids = visibleFks().map(b => b.id);
+  const list = (all || []).filter(r => ids.includes(r.bereich_id)).sort((a, b) => (a.sortierung || 0) - (b.sortierung || 0));
+
+  const v = $('#view'); v.innerHTML = '';
+  v.appendChild(header('VOLUMEN', 'Volumenrechner',
+    'Systematik der tecis Anlage 4: Volumen = Basis × Faktor (BZD maximiert). Positionen erfassen, Summe unten.', 'gold'));
+
+  const q = el('div', 'pillinfo', 'Faktoren-Quelle: ' + (window.TARIFE_QUELLE || 'unbekannt'));
+  if (!window.PROMILLE_BEISPIEL) q.classList.add('warn');
+  v.appendChild(q);
+
+  const t = el('table', 'tbl vol-tbl');
+  t.innerHTML = '<thead><tr><th>Kunde</th><th>Tarif</th><th class="num">Basis</th>' +
+    '<th class="num">Jahre / %</th><th class="num">Einmal €</th><th class="num">Volumen</th><th class="col-del"></th></tr></thead>';
+  const tb = el('tbody');
+  for (const r of list) tb.appendChild(volRowEl(r));
+  volAddLine(tb, viewer.fkId || (visibleFks()[0] || {}).id);
+  t.appendChild(tb); v.appendChild(t);
+
+  const gesamt = list.reduce((a, r) => a + volumen(tarife().find(x => x.name === r.tarif), r), 0);
+  const g = el('div', 'gesamt');
+  g.appendChild(el('span', 'lbl', 'VOLUMEN GESAMT'));
+  const right = el('div', 'gesamt-right');
+  right.appendChild(el('span', 'val', (gesamt).toLocaleString('de-DE', { maximumFractionDigits: 0 })));
+  right.appendChild(el('span', 'sub-val', list.length + ' Positionen' +
+    (window.PROMILLE_BEISPIEL ? '  ·  Beispiel ' + String(window.PROMILLE_BEISPIEL).replace('.', ',') + ' ‰ = ' + eur(gesamt * window.PROMILLE_BEISPIEL / 1000) : '')));
+  g.appendChild(right); v.appendChild(g);
+
+  if (!window.PROMILLE_BEISPIEL)
+    v.appendChild(el('div', 'empty', 'Diese Ansicht rechnet mit Platzhalter-Faktoren. Die echten Werte der Anlage 4 liegen lokal in tarife.local.js (nicht im öffentlichen Repo).'));
+}
+
+function volRowEl(r) {
+  const t0 = tarife().find(x => x.name === r.tarif);
+  const tr = el('tr');
+  const c1 = el('td'); const i1 = el('input'); i1.value = r.kunde ?? ''; i1.placeholder = 'Kunde…';
+  i1.onchange = () => saveTbl('volumen', r.id, 'kunde', i1.value); c1.appendChild(i1); tr.appendChild(c1);
+
+  const c2 = el('td'); const s = el('select', 'vol-tarif');
+  s.appendChild(new Option('— Tarif wählen —', ''));
+  let lastSparte = null, grp = null;
+  for (const t of tarife()) {
+    if (t.sparte !== lastSparte) { grp = window.document.createElement('optgroup'); grp.label = t.sparte; s.appendChild(grp); lastSparte = t.sparte; }
+    const o = new Option(t.name, t.name); if (r.tarif === t.name) o.selected = true; grp.appendChild(o);
+  }
+  s.onchange = async () => { await saveTbl('volumen', r.id, 'tarif', s.value); rerenderCurrent(); };
+  c2.appendChild(s); tr.appendChild(c2);
+
+  const felder = TYP_FELDER[t0 ? t0.typ : 'bs'] || {};
+  const mk = (col, ph, cls) => {
+    const td = el('td', 'num'); const i = el('input', cls); i.type = 'number'; i.value = r[col] ?? '';
+    i.placeholder = ph || '–'; if (!ph) i.disabled = true;
+    i.onchange = () => { saveTbl('volumen', r.id, col, Number(i.value) || 0); rerenderCurrent(); };
+    td.appendChild(i); return td;
+  };
+  tr.appendChild(mk('betrag', felder.betrag));
+  tr.appendChild(mk(felder.satz ? 'satz' : 'jahre', felder.jahre || felder.satz));
+  tr.appendChild(mk('einmal', felder.einmal));
+
+  const vol = volumen(t0, r);
+  const vt = el('td', 'num vol-erg', vol ? vol.toLocaleString('de-DE', { maximumFractionDigits: 0 }) : '—');
+  if (t0 && t0.hinweis) vt.title = t0.hinweis;
+  tr.appendChild(vt);
+
+  const del = el('td', 'col-del'); const bt = el('button', 'del-btn', '✕');
+  bt.onclick = async () => { await sb.from('volumen').delete().eq('id', r.id); rerenderCurrent(); };
+  del.appendChild(bt); tr.appendChild(del);
+  return tr;
+}
+function volAddLine(tb, bereichId) {
+  const tr = el('tr'); const td = el('td'); td.colSpan = 7; td.style.padding = '4px';
+  const btn = el('button', 'add-line', '+ Position'); btn.onclick = async () => {
+    const { data, error } = await sb.from('volumen').insert({ bereich_id: bereichId, monat: currentMonat, sortierung: Date.now() % 1e9 }).select().single();
+    if (error) return toast(error.message, true);
+    tb.insertBefore(volRowEl(data), tr); const f = tr.previousSibling.querySelector('input'); if (f) f.focus();
+  };
+  td.appendChild(btn); tr.appendChild(td); tb.appendChild(tr);
 }
 
 /* ── Ziele & Planung (Jahr → Monat, Soll-Ist je Person) ────────────── */
@@ -818,7 +930,7 @@ function subscribe() {
     rerenderCurrent();
   };
   realtimeCh = sb.channel('board');
-  for (const table of ['eintraege', 'bereiche', 'avdepot', 'kpue', 'ziele'])
+  for (const table of ['eintraege', 'bereiche', 'avdepot', 'kpue', 'ziele', 'volumen'])
     realtimeCh.on('postgres_changes', { event: '*', schema: 'public', table }, rerender);
   realtimeCh.subscribe();
 }

@@ -111,6 +111,12 @@ globalThis.DemoDB = (function () {
       ],
       // Ziele 2026 — Monatswerte je Person (Jahresziel = Summe der 12 Monate)
       ziele: zieleSeed(),
+      // Volumenrechner — Beispielpositionen (Tarifnamen aus tarife.js)
+      volumen: [
+        { id: 1, bereich_id: 3, monat: '2026-07', kunde: 'Familie Berger', tarif: 'Basisvorsorge (Platzhalter)', betrag: 150, jahre: 30, einmal: 0, satz: 0, sortierung: 10 },
+        { id: 2, bereich_id: 3, monat: '2026-07', kunde: 'Dr. Krause', tarif: 'Berufsunfähigkeit (Platzhalter)', betrag: 120, jahre: 35, einmal: 0, satz: 0, sortierung: 20 },
+        { id: 3, bereich_id: 4, monat: '2026-07', kunde: 'Familie Ott', tarif: 'Fonds-Sparplan (Platzhalter)', betrag: 200, jahre: 10, einmal: 5000, satz: 0, sortierung: 10 },
+      ],
     };
   }
   // Monatsziele generieren: gleichmäßig aufs Jahr, je Rolle unterschiedlich hoch
@@ -138,6 +144,7 @@ globalThis.DemoDB = (function () {
     avdepot: { kunde: null, status: 'offen', notiz: null, erfasst_am: null, sortierung: 0 },
     kpue: { name: null, typ: 'potenzial', prio: 'B', notiz: null, erfasst_am: null, sortierung: 0 },
     ziele: { jahr: 2026, monat: 1, wert: 0 },
+    volumen: { monat: null, kunde: null, tarif: null, betrag: 0, jahre: 0, einmal: 0, satz: 0, sortierung: 0 },
   };
 
   function load() {

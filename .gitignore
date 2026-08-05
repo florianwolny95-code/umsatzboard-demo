@@ -1,2 +1,7 @@
 node_modules/
 .DS_Store
+
+# Vertrauliche tecis-Vertragsdaten (Anlage 4: Volumenfaktoren, Promilleschlüssel).
+# Bleibt bewusst lokal — dieses Repo ist öffentlich.
+tarife.local.js
+provision.local.js
