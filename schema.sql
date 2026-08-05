@@ -126,6 +126,22 @@ create table if not exists volumen (
 );
 create index if not exists volumen_bereich_idx on volumen(bereich_id, sortierung);
 
+-- Aktivitäten-Funnel: Vorlaufkennzahlen je Person und Monat
+create table if not exists aktivitaeten (
+  id         bigint generated always as identity primary key,
+  bereich_id bigint not null references bereiche(id) on delete cascade,
+  monat      text not null,                  -- 'YYYY-MM'
+  kontakte   int not null default 0,         -- Ansprachen / Erstkontakte
+  s1         int not null default 0,         -- Erstgespräch
+  s2         int not null default 0,         -- Konzeptpräsentation
+  s3         int not null default 0,         -- Abschlussgespräch
+  abschluss  int not null default 0,         -- Abschlüsse
+  updated_at timestamptz not null default now(),
+  updated_by uuid references auth.users(id),
+  unique (bereich_id, monat)
+);
+create index if not exists aktivitaeten_idx on aktivitaeten(monat);
+
 -- Rollen/Zuordnung: welcher User ist Admin, welche FK gehört ihm
 -- (Zeilen legst du im Supabase-Dashboard an: Authentication → User anlegen, dann hier eintragen.)
 create table if not exists profiles (
@@ -154,11 +170,12 @@ alter table avdepot     enable row level security;
 alter table kpue        enable row level security;
 alter table ziele       enable row level security;
 alter table volumen     enable row level security;
+alter table aktivitaeten enable row level security;
 
 do $$
 declare t text;
 begin
-  foreach t in array array['bereiche','sub_leiter','eintraege','termine','monatswerte','avdepot','kpue','ziele','volumen'] loop
+  foreach t in array array['bereiche','sub_leiter','eintraege','termine','monatswerte','avdepot','kpue','ziele','volumen','aktivitaeten'] loop
     execute format('drop policy if exists team_all on %I', t);
     execute format(
       'create policy team_all on %I for all to authenticated using (true) with check (true)', t);
@@ -169,7 +186,7 @@ end$$;
 do $$
 declare t text;
 begin
-  foreach t in array array['bereiche','sub_leiter','eintraege','termine','monatswerte','avdepot','kpue','ziele','volumen'] loop
+  foreach t in array array['bereiche','sub_leiter','eintraege','termine','monatswerte','avdepot','kpue','ziele','volumen','aktivitaeten'] loop
     begin
       execute format('alter publication supabase_realtime add table %I', t);
     exception when duplicate_object then null;   -- schon drin → ignorieren

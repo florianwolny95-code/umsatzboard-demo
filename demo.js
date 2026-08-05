@@ -1,7 +1,7 @@
 /* Demo-Modus: ersetzt Supabase durch localStorage (kein Login, kein Server).
    Aktiv, wenn config.js keine echten Zugangsdaten hat. Beispieldaten (fiktiv). */
 globalThis.DemoDB = (function () {
-  const KEY = 'umsatzboard_demo_v10';
+  const KEY = 'umsatzboard_demo_v11';
   let store = null;
 
   function seed() {
@@ -111,6 +111,25 @@ globalThis.DemoDB = (function () {
       ],
       // Ziele 2026 — Monatswerte je Person (Jahresziel = Summe der 12 Monate)
       ziele: zieleSeed(),
+      // Aktivitäten-Funnel je Person/Monat (Kontakte → S1 → S2 → S3 → Abschluss)
+      aktivitaeten: [
+        { id: 1, bereich_id: 3,  monat: '2026-07', kontakte: 40, s1: 14, s2: 9, s3: 6, abschluss: 4 },
+        { id: 2, bereich_id: 4,  monat: '2026-07', kontakte: 55, s1: 20, s2: 12, s3: 8, abschluss: 5 },
+        { id: 3, bereich_id: 5,  monat: '2026-07', kontakte: 48, s1: 16, s2: 10, s3: 7, abschluss: 4 },
+        { id: 4, bereich_id: 6,  monat: '2026-07', kontakte: 30, s1: 9,  s2: 5, s3: 3, abschluss: 1 },
+        { id: 5, bereich_id: 7,  monat: '2026-07', kontakte: 35, s1: 12, s2: 7, s3: 5, abschluss: 3 },
+        { id: 6, bereich_id: 8,  monat: '2026-07', kontakte: 62, s1: 24, s2: 15, s3: 10, abschluss: 6 },
+        { id: 7, bereich_id: 9,  monat: '2026-07', kontakte: 45, s1: 13, s2: 6, s3: 3, abschluss: 1 },
+        { id: 8, bereich_id: 10, monat: '2026-07', kontakte: 28, s1: 10, s2: 6, s3: 4, abschluss: 2 },
+        { id: 9, bereich_id: 12, monat: '2026-07', kontakte: 70, s1: 22, s2: 11, s3: 6, abschluss: 3 },
+        { id: 10, bereich_id: 13, monat: '2026-07', kontakte: 65, s1: 18, s2: 8, s3: 4, abschluss: 2 },
+        { id: 11, bereich_id: 16, monat: '2026-07', kontakte: 80, s1: 26, s2: 12, s3: 7, abschluss: 3 },
+        { id: 12, bereich_id: 32, monat: '2026-07', kontakte: 25, s1: 12, s2: 9, s3: 7, abschluss: 5 },
+        // Vormonat für den Monatsvergleich
+        { id: 13, bereich_id: 3,  monat: '2026-06', kontakte: 35, s1: 12, s2: 7, s3: 5, abschluss: 3 },
+        { id: 14, bereich_id: 4,  monat: '2026-06', kontakte: 50, s1: 17, s2: 10, s3: 6, abschluss: 4 },
+        { id: 15, bereich_id: 8,  monat: '2026-06', kontakte: 58, s1: 21, s2: 13, s3: 9, abschluss: 5 },
+      ],
       // Volumenrechner — Beispielpositionen (Tarifnamen aus tarife.js)
       volumen: [
         { id: 1, bereich_id: 3, monat: '2026-07', kunde: 'Familie Berger', tarif: 'Basisvorsorge (Platzhalter)', betrag: 150, jahre: 30, einmal: 0, satz: 0, sortierung: 10 },
@@ -156,6 +175,7 @@ globalThis.DemoDB = (function () {
     kpue: { name: null, typ: 'potenzial', prio: 'B', notiz: null, erfasst_am: null, sortierung: 0 },
     ziele: { jahr: 2026, monat: 1, wert: 0 },
     volumen: { monat: null, kunde: null, tarif: null, betrag: 0, jahre: 0, einmal: 0, satz: 0, sortierung: 0 },
+    aktivitaeten: { monat: null, kontakte: 0, s1: 0, s2: 0, s3: 0, abschluss: 0 },
   };
 
   function load() {

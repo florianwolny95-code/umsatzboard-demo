@@ -19,6 +19,14 @@ const KPUE_TYP = ['potenzial', 'interessent', 'kunde'];
 const KPUE_LABEL = { potenzial: '◇ Potenziell', interessent: '○ Interessent', kunde: '✓ Kunde' };
 const KPUE_ZIEL = 30;   // klassische 30er-Liste
 const MON_KURZ = ['Jan', 'Feb', 'Mär', 'Apr', 'Mai', 'Jun', 'Jul', 'Aug', 'Sep', 'Okt', 'Nov', 'Dez'];
+// Aktivitäten-Funnel: Vorlaufkennzahlen von der Ansprache bis zum Abschluss
+const FUNNEL = [
+  { key: 'kontakte',  kurz: 'Kontakte', label: 'Kontakte / Ansprachen' },
+  { key: 's1',        kurz: 'S1',       label: 'S1 · Erstgespräch' },
+  { key: 's2',        kurz: 'S2',       label: 'S2 · Konzeptpräsentation' },
+  { key: 's3',        kurz: 'S3',       label: 'S3 · Abschlussgespräch' },
+  { key: 'abschluss', kurz: 'Abschluss', label: 'Abschlüsse' },
+];
 
 const $ = s => document.querySelector(s);
 const el = (t, c, txt) => { const e = document.createElement(t); if (c) e.className = c; if (txt != null) e.textContent = txt; return e; };
@@ -186,6 +194,7 @@ function renderNav() {
   const item = (label, thunk, active) => { const a = el('a', 'dash' + (active ? ' active' : ''), label); a.onclick = () => go(thunk); nav.appendChild(a); };
   item('📊 Controlling', showControlling, curName === 'controlling');
   item('🎯 Ziele & Planung', showZiele, curName === 'ziele');
+  item('📞 Aktivitäten-Funnel', showFunnel, curName === 'funnel');
   item('🧮 Volumenrechner', showVolumen, curName === 'volumen');
   item('🏅 Karriere & Provision', showKarriere, curName === 'karriere');
   item('🗓 Monatsauswertung', showMonat, curName === 'monat');
@@ -364,6 +373,193 @@ async function showRecycling() {
   }
   t.appendChild(tb); v.appendChild(t);
   if (!rec.length) v.appendChild(el('div', 'empty', 'Recycling ist leer — nichts abgelehnt.'));
+}
+
+/* ── Aktivitäten-Funnel (Vorlaufkennzahlen) ────────────────────────── */
+const aktEigen = (bid, monat, aktRows) => {
+  const r = (aktRows || []).find(x => x.bereich_id === bid && x.monat === monat);
+  const o = {}; for (const s of FUNNEL) o[s.key] = r ? num(r[s.key]) : 0;
+  return o;
+};
+// Summe über den Unterbau (wie bei Volumen/Zielen)
+function aktSubtree(bid, monat, aktRows) {
+  const o = {}; for (const s of FUNNEL) o[s.key] = 0;
+  for (const id of subtreeIds(bid)) {
+    const e = aktEigen(id, monat, aktRows);
+    for (const s of FUNNEL) o[s.key] += e[s.key];
+  }
+  return o;
+}
+// Umwandlungsquoten Stufe → Stufe; null wenn Ausgangsstufe leer
+function quoten(a) {
+  const q = [];
+  for (let i = 1; i < FUNNEL.length; i++) {
+    const von = a[FUNNEL[i - 1].key], nach = a[FUNNEL[i].key];
+    q.push({ von: FUNNEL[i - 1].kurz, nach: FUNNEL[i].kurz, wert: von ? nach / von : null });
+  }
+  return q;
+}
+// Rückrechnung: benötigte Aktivität für ein Umsatzziel.
+// Fehlende eigene Quoten werden durch Referenzwerte ersetzt (transparent markiert).
+const REF_QUOTE = { s1: 0.35, s2: 0.6, s3: 0.7, abschluss: 0.6 };   // Kontakt→S1→S2→S3→Abschluss
+function rueckrechnung(ziel, aVolProAbschluss, a) {
+  const q = quoten(a);
+  const eff = [];   // effektive Quote je Übergang + ob geschätzt
+  for (let i = 0; i < q.length; i++) {
+    const eigen = q[i].wert;
+    const ok = eigen != null && eigen > 0;
+    eff.push({ wert: ok ? eigen : REF_QUOTE[FUNNEL[i + 1].key], geschaetzt: !ok });
+  }
+  const proAbschluss = aVolProAbschluss > 0 ? aVolProAbschluss : 0;
+  const abschluesse = proAbschluss ? ziel / proAbschluss : 0;
+  // von hinten nach vorne hochrechnen
+  const bedarf = { abschluss: abschluesse };
+  let n = abschluesse;
+  for (let i = FUNNEL.length - 2; i >= 0; i--) {
+    const e = eff[i];
+    n = e.wert > 0 ? n / e.wert : 0;
+    bedarf[FUNNEL[i].key] = n;
+  }
+  return { bedarf, eff, abschluesse };
+}
+
+async function showFunnel() {
+  curName = 'funnel'; renderNav();
+  const ids = visibleFks().map(b => b.id);
+  const [{ data: allAkt }, { data: allE }] = await Promise.all([
+    sb.from('aktivitaeten').select('*'),
+    sb.from('eintraege').select('*'),
+  ]);
+  const aktRows = (allAkt || []).filter(r => ids.includes(r.bereich_id));
+  const jahr = jahrVon(currentMonat), mon = monVon(currentMonat);
+
+  const v = $('#view'); v.innerHTML = '';
+  v.appendChild(header('AKTIVITÄTEN', 'Funnel & Vorlaufkennzahlen',
+    'Kontakte → S1 → S2 → S3 → Abschluss. Zahlen je Monat erfassen, Quoten und Aktivitätsbedarf rechnen sich daraus.', 'teal'));
+  v.appendChild(monthNav());
+
+  // Gesamt-Funnel des Sichtbereichs (Wurzeln des Bereichs, damit nichts doppelt zählt)
+  const wurzeln = visibleFks().filter(b => !ids.includes(b.parent_id));
+  const ges = {}; for (const s of FUNNEL) ges[s.key] = 0;
+  for (const b of wurzeln) { const a = aktSubtree(b.id, currentMonat, aktRows); for (const s of FUNNEL) ges[s.key] += a[s.key]; }
+
+  // Trichter
+  const maxV = Math.max(1, ges.kontakte || 0);
+  const fw = el('div', 'funnelwrap');
+  for (const [i, s] of FUNNEL.entries()) {
+    const row = el('div', 'fn-row');
+    row.appendChild(el('div', 'fn-lbl', s.label));
+    const barBox = el('div', 'fn-barbox');
+    const bar = el('div', 'fn-bar fn-' + s.key);
+    bar.style.width = Math.max(2, (ges[s.key] / maxV) * 100) + '%';
+    bar.appendChild(el('span', 'fn-val', String(ges[s.key])));
+    barBox.appendChild(bar);
+    row.appendChild(barBox);
+    // Quote zur Vorstufe
+    const qt = el('div', 'fn-quote');
+    if (i > 0) {
+      const von = ges[FUNNEL[i - 1].key];
+      qt.textContent = von ? '↳ ' + Math.round(ges[s.key] / von * 100) + ' %' : '↳ —';
+    }
+    row.appendChild(qt);
+    fw.appendChild(row);
+  }
+  v.appendChild(fw);
+
+  // Kennzahlen
+  const kunden = (allE || []).filter(r => ids.includes(r.bereich_id) && r.monat === currentMonat && r.status === 'kunde');
+  const umsatz = kunden.reduce((a, r) => a + num(r.potenzial), 0);
+  const proAbschluss = ges.abschluss ? umsatz / ges.abschluss : (kunden.length ? umsatz / kunden.length : 0);
+  const gesamtQuote = ges.kontakte ? ges.abschluss / ges.kontakte : null;
+  const kp = el('div', 'kpis');
+  kp.append(kpi('Kontakte', ges.kontakte), kpi('Abschlüsse', ges.abschluss),
+    kpi('Gesamtquote', gesamtQuote == null ? '—' : (gesamtQuote * 100).toFixed(1).replace('.', ',') + ' %'),
+    kpi('Ø Volumen je Abschluss', proAbschluss ? eur(proAbschluss) : '—'));
+  v.appendChild(kp);
+
+  // Rückrechnung aus dem Monatsziel
+  const soll = wurzeln.reduce((a, b) => a + zielSubtree(b.id, jahr, mon), 0);
+  const rrBox = el('div', 'av-intro rr-box');
+  if (!soll) rrBox.appendChild(el('p', 'av-lead', 'Kein Monatsziel hinterlegt — trag es unter „Ziele & Planung" ein, dann rechnet das Board hier den nötigen Aktivitätsbedarf aus.'));
+  else if (!proAbschluss) rrBox.appendChild(el('p', 'av-lead', 'Noch kein Ø-Volumen je Abschluss bekannt (Abschlüsse oder Umsatz fehlen) — sobald der erste Monat gepflegt ist, rechnet das Board den Aktivitätsbedarf.'));
+  else {
+    const rr = rueckrechnung(soll, proAbschluss, ges);
+    rrBox.appendChild(el('div', 'rr-titel', 'Aktivitätsbedarf für das Monatsziel ' + eur(soll)));
+    const chain = el('div', 'rr-chain');
+    for (const [i, s] of FUNNEL.entries()) {
+      const item = el('div', 'rr-item');
+      item.appendChild(el('div', 'rr-num', Math.ceil(rr.bedarf[s.key] || 0).toLocaleString('de-DE')));
+      item.appendChild(el('div', 'rr-lbl', s.kurz));
+      const ist = ges[s.key], need = Math.ceil(rr.bedarf[s.key] || 0);
+      if (ist >= need && need > 0) item.classList.add('rr-ok');
+      item.title = 'Ist: ' + ist + ' · benötigt: ' + need;
+      chain.appendChild(item);
+      if (i < FUNNEL.length - 1) chain.appendChild(el('div', 'rr-pfeil', '→'));
+    }
+    rrBox.appendChild(chain);
+    const gesch = rr.eff.some(e => e.geschaetzt);
+    rrBox.appendChild(el('div', 'rr-fuss', 'Basis: Ø ' + eur(proAbschluss) + ' je Abschluss' +
+      (gesch ? ' · für fehlende eigene Quoten sind Erfahrungswerte angesetzt (35/60/70/60 %)' : ' · gerechnet mit euren eigenen Quoten')));
+  }
+  v.appendChild(rrBox);
+
+  // Tabelle: Erfassung je Person + Quoten
+  const wrap = el('div', 'tblscroll');
+  const t = el('table', 'dash-tbl fn-tbl');
+  let head = '<thead><tr><th>Mitarbeiter</th>';
+  for (const s of FUNNEL) head += '<th class="num">' + s.kurz + '</th>';
+  head += '<th class="num">K→S1</th><th class="num">S1→S2</th><th class="num">S2→S3</th><th class="num">S3→A</th><th class="num">Gesamt</th></tr></thead>';
+  t.innerHTML = head;
+  const tb = el('tbody');
+  const base = baseDepth();
+  for (const b of visibleFks()) {
+    const eig = aktEigen(b.id, currentMonat, aktRows);
+    const team = aktSubtree(b.id, currentMonat, aktRows);
+    const hatTeam = childrenFks(b.id).length > 0;
+    const tr = el('tr');
+    if (!team.kontakte && !team.abschluss) tr.classList.add('row-dim');
+    const depth = Math.max(0, fkDepth(b) - base);
+    const nt = el('td'); nt.style.paddingLeft = (12 + depth * 18) + 'px';
+    if (depth) nt.appendChild(el('span', 'tree', '└ '));
+    nt.appendChild(el('span', 'dot ' + b.gruppe));
+    const ln = el('a', 'name', ' ' + b.name); ln.onclick = () => go(() => showFk(b.id)); nt.appendChild(ln);
+    tr.appendChild(nt);
+
+    for (const s of FUNNEL) {
+      const td = el('td', 'num');
+      const i = el('input', 'fn-in'); i.type = 'number'; i.min = 0; i.value = eig[s.key] || '';
+      i.placeholder = '–';
+      i.onchange = async () => { await setAktivitaet(b.id, currentMonat, s.key, Number(i.value) || 0); rerenderCurrent(); };
+      td.appendChild(i);
+      if (hatTeam && team[s.key] !== eig[s.key]) td.appendChild(el('div', 'ziel-team', 'Team: ' + team[s.key]));
+      tr.appendChild(td);
+    }
+    // Quoten auf Team-Basis (das ist die Führungssicht)
+    for (const q of quoten(team)) {
+      const td = el('td', 'num');
+      td.appendChild(quoteBadge(q.wert));
+      tr.appendChild(td);
+    }
+    const gq = team.kontakte ? team.abschluss / team.kontakte : null;
+    const gt = el('td', 'num'); gt.appendChild(quoteBadge(gq, true)); tr.appendChild(gt);
+    tb.appendChild(tr);
+  }
+  t.appendChild(tb); wrap.appendChild(t); v.appendChild(wrap);
+}
+
+function quoteBadge(wert, gesamt) {
+  if (wert == null) return el('span', 'amp amp-none', '—');
+  const p = wert * 100;
+  // Schwellen: Übergangsquoten und Gesamtquote werden unterschiedlich bewertet
+  const gut = gesamt ? 8 : 55, mittel = gesamt ? 4 : 35;
+  const cls = p >= gut ? 'amp-gruen' : p >= mittel ? 'amp-gelb' : 'amp-rot';
+  return el('span', 'amp ' + cls, (p >= 10 ? Math.round(p) : p.toFixed(1).replace('.', ',')) + ' %');
+}
+async function setAktivitaet(bid, monat, feld, wert) {
+  const { data: vorhanden } = await sb.from('aktivitaeten').select('*').eq('bereich_id', bid).eq('monat', monat);
+  const row = (vorhanden || [])[0];
+  if (row) await sb.from('aktivitaeten').update({ [feld]: wert }).eq('id', row.id);
+  else await sb.from('aktivitaeten').insert({ bereich_id: bid, monat, [feld]: wert });
 }
 
 /* ── Karriere & Provision (Systematik tecis Anlage 5) ──────────────── */
@@ -1054,7 +1250,7 @@ function subscribe() {
     rerenderCurrent();
   };
   realtimeCh = sb.channel('board');
-  for (const table of ['eintraege', 'bereiche', 'avdepot', 'kpue', 'ziele', 'volumen'])
+  for (const table of ['eintraege', 'bereiche', 'avdepot', 'kpue', 'ziele', 'volumen', 'aktivitaeten'])
     realtimeCh.on('postgres_changes', { event: '*', schema: 'public', table }, rerender);
   realtimeCh.subscribe();
 }
