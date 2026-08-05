@@ -115,7 +115,8 @@ create table if not exists volumen (
   bereich_id bigint not null references bereiche(id) on delete cascade,
   monat      text,            -- 'YYYY-MM'
   kunde      text,
-  tarif      text,            -- Name aus dem Tarifkatalog
+  gesellschaft text,          -- Produktpartner aus dem Tarifkatalog
+  tarif      text,            -- Tarifname innerhalb dieser Gesellschaft
   betrag     numeric not null default 0,   -- Monatsbeitrag / Summe / Kaufpreis (je Formeltyp)
   jahre      numeric not null default 0,   -- BZD bzw. Spardauer
   einmal     numeric not null default 0,   -- Einmalanlage (Kombianlage)

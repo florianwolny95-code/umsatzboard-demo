@@ -1,7 +1,7 @@
 /* Demo-Modus: ersetzt Supabase durch localStorage (kein Login, kein Server).
    Aktiv, wenn config.js keine echten Zugangsdaten hat. Beispieldaten (fiktiv). */
 globalThis.DemoDB = (function () {
-  const KEY = 'umsatzboard_demo_v11';
+  const KEY = 'umsatzboard_demo_v12';
   let store = null;
 
   function seed() {
@@ -132,20 +132,20 @@ globalThis.DemoDB = (function () {
       ],
       // Volumenrechner — Beispielpositionen (Tarifnamen aus tarife.js)
       volumen: [
-        { id: 1, bereich_id: 3, monat: '2026-07', kunde: 'Familie Berger', tarif: 'Basisvorsorge (Platzhalter)', betrag: 150, jahre: 30, einmal: 0, satz: 0, sortierung: 10 },
-        { id: 2, bereich_id: 3, monat: '2026-07', kunde: 'Dr. Krause', tarif: 'Berufsunfähigkeit (Platzhalter)', betrag: 120, jahre: 35, einmal: 0, satz: 0, sortierung: 20 },
-        { id: 3, bereich_id: 4, monat: '2026-07', kunde: 'Familie Ott', tarif: 'Fonds-Sparplan (Platzhalter)', betrag: 200, jahre: 10, einmal: 5000, satz: 0, sortierung: 10 },
-        { id: 4, bereich_id: 4, monat: '2026-07', kunde: 'Sabine Lux', tarif: 'Riester (Platzhalter)', betrag: 100, jahre: 30, einmal: 0, satz: 0, sortierung: 20 },
-        { id: 5, bereich_id: 5, monat: '2026-07', kunde: 'Familie Brandt', tarif: 'Privatvorsorge (Platzhalter)', betrag: 250, jahre: 35, einmal: 0, satz: 0, sortierung: 10 },
-        { id: 6, bereich_id: 5, monat: '2026-07', kunde: 'Praxis Sonne', tarif: 'Private Krankenversicherung (Platzhalter)', betrag: 480, jahre: 0, einmal: 0, satz: 0, sortierung: 20 },
-        { id: 7, bereich_id: 6, monat: '2026-07', kunde: 'Autohaus Krüger', tarif: 'Baufinanzierung (Platzhalter)', betrag: 320000, jahre: 0, einmal: 0, satz: 0, sortierung: 10 },
-        { id: 8, bereich_id: 7, monat: '2026-07', kunde: 'Klein AG', tarif: 'Berufsunfähigkeit (Platzhalter)', betrag: 180, jahre: 35, einmal: 0, satz: 0, sortierung: 10 },
-        { id: 9, bereich_id: 8, monat: '2026-07', kunde: 'Bau Süd GmbH', tarif: 'Basisvorsorge (Platzhalter)', betrag: 400, jahre: 30, einmal: 0, satz: 0, sortierung: 10 },
-        { id: 10, bereich_id: 9, monat: '2026-07', kunde: 'Kita Sonnenschein', tarif: 'Rechtsschutz (Platzhalter)', betrag: 45, jahre: 0, einmal: 0, satz: 0, sortierung: 10 },
-        { id: 11, bereich_id: 12, monat: '2026-07', kunde: 'Familie Berger', tarif: 'Risikoleben (Platzhalter)', betrag: 60, jahre: 30, einmal: 0, satz: 0, sortierung: 10 },
-        { id: 12, bereich_id: 16, monat: '2026-07', kunde: 'Marco Diehl', tarif: 'Bausparen (Platzhalter)', betrag: 50000, jahre: 0, einmal: 0, satz: 0, sortierung: 10 },
-        { id: 13, bereich_id: 32, monat: '2026-07', kunde: 'Familie Neumann', tarif: 'Baufinanzierung (Platzhalter)', betrag: 450000, jahre: 0, einmal: 0, satz: 0, sortierung: 10 },
-        { id: 14, bereich_id: 32, monat: '2026-07', kunde: 'Dr. Seifert', tarif: 'Immobilienvermittlung (Platzhalter)', betrag: 380000, jahre: 0, einmal: 0, satz: 7, sortierung: 20 },
+        { id: 1, bereich_id: 3, monat: '2026-07', kunde: 'Familie Berger', gesellschaft: 'Versicherer A (Demo)', tarif: 'Basisvorsorge laufender Beitrag', betrag: 150, jahre: 30, einmal: 0, satz: 0, sortierung: 10 },
+        { id: 2, bereich_id: 3, monat: '2026-07', kunde: 'Dr. Krause', gesellschaft: 'Versicherer B (Demo)', tarif: 'Berufsunfähigkeit', betrag: 120, jahre: 35, einmal: 0, satz: 0, sortierung: 20 },
+        { id: 3, bereich_id: 4, monat: '2026-07', kunde: 'Familie Ott', gesellschaft: 'Investment (Demo)', tarif: 'Fonds-Sparplan', betrag: 200, jahre: 10, einmal: 5000, satz: 0, sortierung: 10 },
+        { id: 4, bereich_id: 4, monat: '2026-07', kunde: 'Sabine Lux', gesellschaft: 'Versicherer B (Demo)', tarif: 'Riester laufender Beitrag', betrag: 100, jahre: 30, einmal: 0, satz: 0, sortierung: 20 },
+        { id: 5, bereich_id: 5, monat: '2026-07', kunde: 'Familie Brandt', gesellschaft: 'Versicherer A (Demo)', tarif: 'Privatvorsorge laufender Beitrag', betrag: 250, jahre: 35, einmal: 0, satz: 0, sortierung: 10 },
+        { id: 6, bereich_id: 5, monat: '2026-07', kunde: 'Praxis Sonne', gesellschaft: 'Krankenversicherer (Demo)', tarif: 'Private Krankenversicherung', betrag: 480, jahre: 0, einmal: 0, satz: 0, sortierung: 20 },
+        { id: 7, bereich_id: 6, monat: '2026-07', kunde: 'Autohaus Krüger', gesellschaft: 'Finanzierung (Demo)', tarif: 'Baufinanzierung Darlehenssumme', betrag: 320000, jahre: 0, einmal: 0, satz: 0, sortierung: 10 },
+        { id: 8, bereich_id: 7, monat: '2026-07', kunde: 'Klein AG', gesellschaft: 'Versicherer B (Demo)', tarif: 'Berufsunfähigkeit', betrag: 180, jahre: 35, einmal: 0, satz: 0, sortierung: 10 },
+        { id: 9, bereich_id: 8, monat: '2026-07', kunde: 'Bau Süd GmbH', gesellschaft: 'Versicherer A (Demo)', tarif: 'Basisvorsorge laufender Beitrag', betrag: 400, jahre: 30, einmal: 0, satz: 0, sortierung: 10 },
+        { id: 10, bereich_id: 9, monat: '2026-07', kunde: 'Kita Sonnenschein', gesellschaft: 'Komposit (Demo)', tarif: 'Rechtsschutz', betrag: 45, jahre: 0, einmal: 0, satz: 0, sortierung: 10 },
+        { id: 11, bereich_id: 12, monat: '2026-07', kunde: 'Familie Berger', gesellschaft: 'Versicherer A (Demo)', tarif: 'Risikoleben', betrag: 60, jahre: 30, einmal: 0, satz: 0, sortierung: 10 },
+        { id: 12, bereich_id: 16, monat: '2026-07', kunde: 'Marco Diehl', gesellschaft: 'Finanzierung (Demo)', tarif: 'Bausparen Bausparsumme', betrag: 50000, jahre: 0, einmal: 0, satz: 0, sortierung: 10 },
+        { id: 13, bereich_id: 32, monat: '2026-07', kunde: 'Familie Neumann', gesellschaft: 'Finanzierung (Demo)', tarif: 'Baufinanzierung Darlehenssumme', betrag: 450000, jahre: 0, einmal: 0, satz: 0, sortierung: 10 },
+        { id: 14, bereich_id: 32, monat: '2026-07', kunde: 'Dr. Seifert', gesellschaft: 'Finanzierung (Demo)', tarif: 'Immobilienvermittlung', betrag: 380000, jahre: 0, einmal: 0, satz: 7, sortierung: 20 },
       ],
     };
   }
@@ -174,7 +174,7 @@ globalThis.DemoDB = (function () {
     avdepot: { kunde: null, status: 'offen', notiz: null, erfasst_am: null, sortierung: 0 },
     kpue: { name: null, typ: 'potenzial', prio: 'B', notiz: null, erfasst_am: null, sortierung: 0 },
     ziele: { jahr: 2026, monat: 1, wert: 0 },
-    volumen: { monat: null, kunde: null, tarif: null, betrag: 0, jahre: 0, einmal: 0, satz: 0, sortierung: 0 },
+    volumen: { monat: null, kunde: null, gesellschaft: null, tarif: null, betrag: 0, jahre: 0, einmal: 0, satz: 0, sortierung: 0 },
     aktivitaeten: { monat: null, kontakte: 0, s1: 0, s2: 0, s3: 0, abschluss: 0 },
   };
 

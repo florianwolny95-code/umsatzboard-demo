@@ -169,8 +169,11 @@ input.ziel-jahr:focus,input.ziel-mon:focus{outline:none;border-color:var(--teal)
 .gesamt-valrow{display:flex;align-items:center;gap:10px;justify-content:flex-end}
 
 /* Volumenrechner */
-.vol-tbl select.vol-tarif{width:100%;min-width:230px;border:1px solid var(--line);border-radius:6px;
-  padding:6px 5px;font-size:12.5px;background:#fff;color:var(--slate)}
+.vol-tbl td.vol-wahl{min-width:250px}
+.vol-tbl select.vol-ges,.vol-tbl select.vol-tarif{width:100%;min-width:240px;max-width:340px;
+  border:1px solid var(--line);border-radius:6px;padding:6px 5px;font-size:12.5px;background:#fff;color:var(--slate)}
+.vol-tbl select.vol-ges{font-weight:600;color:var(--ink);margin-bottom:4px}
+.vol-tbl select.vol-tarif:disabled{background:var(--soft);color:var(--grey)}
 .vol-tbl td.num input{text-align:right;font-variant-numeric:tabular-nums}
 .vol-tbl td.num input:disabled{background:transparent;color:var(--line);cursor:default}
 .vol-erg{font-weight:700;color:var(--ink);font-variant-numeric:tabular-nums;white-space:nowrap}
@@ -186,6 +189,7 @@ input.ziel-jahr:focus,input.ziel-mon:focus{outline:none;border-color:var(--teal)
 .karr-need{font-size:10.5px;color:var(--grey);margin-top:3px;font-variant-numeric:tabular-nums}
 .karr-top{font-size:12px;font-weight:700;color:var(--gold)}
 .karr-aus{font-weight:700;color:var(--ink)}
+.karr-tbl td.kein-team{color:var(--line)}
 
 /* Aktivitäten-Funnel */
 .funnelwrap{background:#fff;border:1px solid var(--line);border-radius:12px;padding:16px 18px;margin-bottom:18px}

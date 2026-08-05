@@ -563,7 +563,12 @@ async function setAktivitaet(bid, monat, feld, wert) {
 }
 
 /* ── Karriere & Provision (Systematik tecis Anlage 5) ──────────────── */
-const positionen = () => (window.POSITIONEN || []).slice().sort((a, b) => a.stufe - b.stufe);
+const WEG_ORDER = { basis: 0, fuehrung: 1, profi: 2 };
+// Erst nach Karriereweg gruppieren, dann nach Stufe — sonst mischen sich Führung und Profi
+const positionen = () => (window.POSITIONEN || []).slice()
+  .sort((a, b) => (WEG_ORDER[a.weg] ?? 9) - (WEG_ORDER[b.weg] ?? 9) || a.stufe - b.stufe);
+// Profiberaterkarriere qualifiziert über Eigenvolumen — Teamvolumen ist dort ohne Bedeutung
+const istProfi = b => { const p = posOf(b); return !!p && p.weg === 'profi'; };
 const posOf = b => positionen().find(p => p.key === (b && b.position)) || null;
 const promilleOf = b => { const p = posOf(b); return p ? num(p.promille) : 0; };
 // nächste Stufe im selben Karriereweg (Basis läuft in Führung oder Profi weiter)
@@ -576,7 +581,7 @@ function naechstePos(b) {
 // Eigenvolumen einer Person = Summe ihrer Positionen im Volumenrechner (Bewertungszeitraum = geladene Zeilen)
 function eigenVolumen(bid, volRows) {
   return (volRows || []).filter(r => r.bereich_id === bid)
-    .reduce((a, r) => a + volumen(tarife().find(x => x.name === r.tarif), r), 0);
+    .reduce((a, r) => a + volumen(tarifVon(r), r), 0);
 }
 const teamVolumen = (bid, volRows) => subtreeIds(bid).reduce((a, id) => a + eigenVolumen(id, volRows), 0);
 // Provision: Eigenanteil + Differenzprovision auf die direkt Zugeordneten (Anlage 5, I.7)
@@ -651,7 +656,11 @@ async function showKarriere() {
 
     tr.appendChild(el('td', 'num', p ? String(p.promille).replace('.', ',') : '—'));
     tr.appendChild(el('td', 'num', ev.toLocaleString('de-DE', { maximumFractionDigits: 0 })));
-    tr.appendChild(el('td', 'num', tv.toLocaleString('de-DE', { maximumFractionDigits: 0 })));
+    // Profiberater qualifizieren über Eigenvolumen — Teamvolumen wird dort nicht gewertet
+    const tvTd = el('td', 'num');
+    if (istProfi(b)) { tvTd.textContent = '—'; tvTd.classList.add('kein-team'); tvTd.title = 'Profiberaterkarriere: Teamvolumen wird nicht gewertet'; }
+    else tvTd.textContent = tv.toLocaleString('de-DE', { maximumFractionDigits: 0 });
+    tr.appendChild(tvTd);
 
     // Fortschritt zur nächsten Stufe
     const ft = el('td', 'karr-next');
@@ -687,6 +696,10 @@ async function showKarriere() {
 
 /* ── Volumenrechner (Systematik tecis Anlage 4) ────────────────────── */
 const tarife = () => window.TARIFE || [];
+const gesellschaften = () => [...new Set(tarife().map(t => t.gesellschaft).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'de'));
+// Tarif einer Zeile auflösen — innerhalb der gewählten Gesellschaft, damit gleiche Tarifnamen nicht kollidieren
+const tarifVon = r => tarife().find(t => t.name === r.tarif && (!r.gesellschaft || t.gesellschaft === r.gesellschaft))
+  || tarife().find(t => t.name === r.tarif) || null;
 // Volumen einer Position nach Formeltyp der Anlage 4
 function volumen(t, p) {
   if (!t) return 0;
@@ -729,14 +742,14 @@ async function showVolumen() {
   v.appendChild(q);
 
   const t = el('table', 'tbl vol-tbl');
-  t.innerHTML = '<thead><tr><th>Kunde</th><th>Tarif</th><th class="num">Basis</th>' +
+  t.innerHTML = '<thead><tr><th>Kunde</th><th>Gesellschaft / Tarif</th><th class="num">Basis</th>' +
     '<th class="num">Jahre / %</th><th class="num">Einmal €</th><th class="num">Volumen</th><th class="col-del"></th></tr></thead>';
   const tb = el('tbody');
   for (const r of list) tb.appendChild(volRowEl(r));
   volAddLine(tb, viewer.fkId || (visibleFks()[0] || {}).id);
   t.appendChild(tb); v.appendChild(t);
 
-  const gesamt = list.reduce((a, r) => a + volumen(tarife().find(x => x.name === r.tarif), r), 0);
+  const gesamt = list.reduce((a, r) => a + volumen(tarifVon(r), r), 0);
   const g = el('div', 'gesamt');
   g.appendChild(el('span', 'lbl', 'VOLUMEN GESAMT'));
   const right = el('div', 'gesamt-right');
@@ -750,17 +763,29 @@ async function showVolumen() {
 }
 
 function volRowEl(r) {
-  const t0 = tarife().find(x => x.name === r.tarif);
+  const t0 = tarifVon(r);
   const tr = el('tr');
   const c1 = el('td'); const i1 = el('input'); i1.value = r.kunde ?? ''; i1.placeholder = 'Kunde…';
   i1.onchange = () => saveTbl('volumen', r.id, 'kunde', i1.value); c1.appendChild(i1); tr.appendChild(c1);
 
-  const c2 = el('td'); const s = el('select', 'vol-tarif');
-  s.appendChild(new Option('— Tarif wählen —', ''));
-  let lastSparte = null, grp = null;
-  for (const t of tarife()) {
-    if (t.sparte !== lastSparte) { grp = window.document.createElement('optgroup'); grp.label = t.sparte; s.appendChild(grp); lastSparte = t.sparte; }
-    const o = new Option(t.name, t.name); if (r.tarif === t.name) o.selected = true; grp.appendChild(o);
+  // Gesellschaft wählen → danach nur deren Tarife
+  const c2 = el('td', 'vol-wahl');
+  const gesSel = el('select', 'vol-ges');
+  gesSel.appendChild(new Option('— Gesellschaft —', ''));
+  for (const g of gesellschaften()) { const o = new Option(g, g); if (r.gesellschaft === g) o.selected = true; gesSel.appendChild(o); }
+  gesSel.onchange = async () => {
+    await saveTbl('volumen', r.id, 'gesellschaft', gesSel.value);
+    await saveTbl('volumen', r.id, 'tarif', null);   // Tarif passt nicht mehr zur neuen Gesellschaft
+    rerenderCurrent();
+  };
+  c2.appendChild(gesSel);
+
+  const s = el('select', 'vol-tarif');
+  const passend = r.gesellschaft ? tarife().filter(t => t.gesellschaft === r.gesellschaft) : [];
+  if (!r.gesellschaft) { s.appendChild(new Option('erst Gesellschaft wählen', '')); s.disabled = true; }
+  else {
+    s.appendChild(new Option('— Tarif —', ''));
+    for (const t of passend) { const o = new Option(t.name, t.name); if (r.tarif === t.name) o.selected = true; s.appendChild(o); }
   }
   s.onchange = async () => { await saveTbl('volumen', r.id, 'tarif', s.value); rerenderCurrent(); };
   c2.appendChild(s); tr.appendChild(c2);
