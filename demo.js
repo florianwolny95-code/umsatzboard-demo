@@ -1,7 +1,7 @@
 /* Demo-Modus: ersetzt Supabase durch localStorage (kein Login, kein Server).
    Aktiv, wenn config.js keine echten Zugangsdaten hat. Beispieldaten (fiktiv). */
 globalThis.DemoDB = (function () {
-  const KEY = 'umsatzboard_demo_v8';
+  const KEY = 'umsatzboard_demo_v9';
   let store = null;
 
   function seed() {
@@ -109,7 +109,27 @@ globalThis.DemoDB = (function () {
         { id: 8, bereich_id: 16, name: 'Laura Simon', typ: 'potenzial', prio: 'B', erfasst_am: '2026-07-10', notiz: '', sortierung: 20 },
         { id: 9, bereich_id: 8, name: 'Bauunternehmen Falk', typ: 'interessent', prio: 'A', erfasst_am: '2026-06-12', notiz: 'über Bau Süd', sortierung: 10 },
       ],
+      // Ziele 2026 — Monatswerte je Person (Jahresziel = Summe der 12 Monate)
+      ziele: zieleSeed(),
     };
+  }
+  // Monatsziele generieren: gleichmäßig aufs Jahr, je Rolle unterschiedlich hoch
+  function zieleSeed() {
+    const proMonat = {   // bereich_id: Monatsziel €
+      32: 60000,  // Florian W. (Inhaber)
+      3: 50000, 2: 20000, 1: 15000,             // Management
+      4: 40000, 5: 40000, 6: 30000, 7: 30000,   // Seniorberater
+      8: 25000, 9: 20000, 10: 20000, 11: 12000, // Juniorberater
+      12: 8000, 13: 8000, 14: 10000, 15: 10000, // Trainees/Assistenten Max
+      16: 8000, 17: 8000, 18: 8000, 19: 10000,  // Team Agon
+      20: 10000, 21: 8000, 22: 8000, 23: 8000,  // Team Lennart / Tom
+      24: 8000, 25: 8000, 26: 8000, 27: 8000, 28: 8000, 29: 8000,
+      30: 8000, 31: 6000,
+    };
+    const out = []; let id = 1;
+    for (const [bid, wert] of Object.entries(proMonat))
+      for (let m = 1; m <= 12; m++) out.push({ id: id++, bereich_id: Number(bid), jahr: 2026, monat: m, wert });
+    return out;
   }
   const DEFAULTS = {
     bereiche: { rolle: '', gruppe: 'SN', parent_id: null, quartalsziel: 0, sortierung: 0 },
@@ -117,6 +137,7 @@ globalThis.DemoDB = (function () {
     eintraege: { kunde: null, monat: null, status: 'offen', ablehnungsgrund: null, potenzial: 0, terminart: null, notiz: null, erfasst_am: null, sortierung: 0 },
     avdepot: { kunde: null, status: 'offen', notiz: null, erfasst_am: null, sortierung: 0 },
     kpue: { name: null, typ: 'potenzial', prio: 'B', notiz: null, erfasst_am: null, sortierung: 0 },
+    ziele: { jahr: 2026, monat: 1, wert: 0 },
   };
 
   function load() {

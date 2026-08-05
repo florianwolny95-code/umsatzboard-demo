@@ -147,6 +147,27 @@ td.seit input[type=date]:focus{outline:none;border-color:var(--teal);background:
   padding:9px;border-radius:8px;font-size:12.5px}
 .sidebar-tools:hover{background:#ffffff22}
 
+/* Ziele & Ampel */
+.amp{display:inline-block;font-size:11.5px;font-weight:700;padding:3px 9px;border-radius:20px;
+  font-variant-numeric:tabular-nums;white-space:nowrap}
+.amp-gruen{background:#DCFCE7;color:#15803D}
+.amp-gelb{background:#FEF3C7;color:#B45309}
+.amp-orange{background:#FFEDD5;color:#C2410C}
+.amp-rot{background:#FEE2E2;color:#B91C1C}
+.amp-none{background:none;color:var(--grey);font-weight:400}
+.tblscroll{overflow-x:auto;border-radius:12px}
+.ziel-tbl{min-width:1180px}
+.ziel-tbl th.mon,.ziel-tbl td.mon{width:64px;padding:6px 4px!important}
+.ziel-tbl td.mon-akt{background:#0f766e12!important;box-shadow:inset 0 0 0 1px #0f766e33}
+.ziel-rolle{font-size:11px;color:var(--grey)}
+input.ziel-jahr,input.ziel-mon{width:100%;text-align:right;border:1px solid transparent;background:transparent;
+  padding:6px 5px;border-radius:6px;font-size:12.5px;font-variant-numeric:tabular-nums;color:var(--slate)}
+input.ziel-jahr{font-weight:700;color:var(--ink);min-width:92px}
+input.ziel-jahr:hover,input.ziel-mon:hover{border-color:var(--line)}
+input.ziel-jahr:focus,input.ziel-mon:focus{outline:none;border-color:var(--teal);background:#fff;box-shadow:0 0 0 2px #0f766e22}
+.ziel-team{font-size:10.5px;color:var(--grey);text-align:right;margin-top:1px}
+.gesamt-valrow{display:flex;align-items:center;gap:10px;justify-content:flex-end}
+
 /* ── App layout ── */
 .app{display:flex;height:100%}
 .sidebar{width:230px;flex:0 0 230px;background:var(--ink);color:#cbd5e1;

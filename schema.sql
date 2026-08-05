@@ -93,6 +93,19 @@ create table if not exists kpue (
 );
 create index if not exists kpue_bereich_idx on kpue(bereich_id, sortierung);
 
+-- Ziele: Monatsziel je Person; Jahresziel = Summe der 12 Monate
+create table if not exists ziele (
+  id         bigint generated always as identity primary key,
+  bereich_id bigint not null references bereiche(id) on delete cascade,
+  jahr       int not null,
+  monat      int not null check (monat between 1 and 12),
+  wert       numeric not null default 0,   -- Zielwert in € (später: Volumen/Bewertungssumme)
+  updated_at timestamptz not null default now(),
+  updated_by uuid references auth.users(id),
+  unique (bereich_id, jahr, monat)
+);
+create index if not exists ziele_idx on ziele(jahr, monat);
+
 -- Rollen/Zuordnung: welcher User ist Admin, welche FK gehört ihm
 -- (Zeilen legst du im Supabase-Dashboard an: Authentication → User anlegen, dann hier eintragen.)
 create table if not exists profiles (
@@ -119,11 +132,12 @@ alter table termine     enable row level security;
 alter table monatswerte enable row level security;
 alter table avdepot     enable row level security;
 alter table kpue        enable row level security;
+alter table ziele       enable row level security;
 
 do $$
 declare t text;
 begin
-  foreach t in array array['bereiche','sub_leiter','eintraege','termine','monatswerte','avdepot','kpue'] loop
+  foreach t in array array['bereiche','sub_leiter','eintraege','termine','monatswerte','avdepot','kpue','ziele'] loop
     execute format('drop policy if exists team_all on %I', t);
     execute format(
       'create policy team_all on %I for all to authenticated using (true) with check (true)', t);
@@ -134,7 +148,7 @@ end$$;
 do $$
 declare t text;
 begin
-  foreach t in array array['bereiche','sub_leiter','eintraege','termine','monatswerte','avdepot','kpue'] loop
+  foreach t in array array['bereiche','sub_leiter','eintraege','termine','monatswerte','avdepot','kpue','ziele'] loop
     begin
       execute format('alter publication supabase_realtime add table %I', t);
     exception when duplicate_object then null;   -- schon drin → ignorieren

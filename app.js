@@ -18,6 +18,7 @@ const AV_LABEL = { offen: '○ Offen', angesprochen: '◔ Angesprochen', eroeffn
 const KPUE_TYP = ['potenzial', 'interessent', 'kunde'];
 const KPUE_LABEL = { potenzial: '◇ Potenziell', interessent: '○ Interessent', kunde: '✓ Kunde' };
 const KPUE_ZIEL = 30;   // klassische 30er-Liste
+const MON_KURZ = ['Jan', 'Feb', 'Mär', 'Apr', 'Mai', 'Jun', 'Jul', 'Aug', 'Sep', 'Okt', 'Nov', 'Dez'];
 
 const $ = s => document.querySelector(s);
 const el = (t, c, txt) => { const e = document.createElement(t); if (c) e.className = c; if (txt != null) e.textContent = txt; return e; };
@@ -32,6 +33,7 @@ function fmtDate(dstr) { if (!dstr) return '—'; const [y, m, d] = dstr.split('
 const byAge = (a, b) => { const x = a.erfasst_am || '9999', y = b.erfasst_am || '9999'; return x < y ? -1 : x > y ? 1 : ((a.sortierung || 0) - (b.sortierung || 0)); };
 
 let BEREICHE = [];
+let ZIELE = [];              // { bereich_id, jahr, monat (1-12), wert }
 let viewer = { role: 'admin', fkId: null };
 let currentMonat = new Date().toISOString().slice(0, 7);
 let currentView = showControlling, curName = 'controlling';
@@ -93,6 +95,13 @@ async function enterApp(session) {
   if (DEMO) $('#userLine').innerHTML = '<span style="color:var(--gold-l);font-weight:700">● DEMO-MODUS</span><br>lokale Beispieldaten';
   else $('#userLine').textContent = session.user.email + (viewer.role === 'admin' ? ' · Admin' : '');
   await loadBereiche();
+  await loadZiele();
+  // Demo: nicht auf einem leeren Monat starten → jüngster Monat mit Daten
+  if (DEMO) {
+    const { data } = await sb.from('eintraege').select('*');
+    const monate = [...new Set((data || []).map(r => r.monat).filter(Boolean))].sort();
+    if (monate.length && !monate.includes(currentMonat)) currentMonat = monate[monate.length - 1];
+  }
   buildRoleSwitch();
   subscribe();
   go(showControlling);
@@ -102,6 +111,44 @@ async function loadBereiche() {
   const { data, error } = await sb.from('bereiche').select('*').order('sortierung');
   if (error) return toast('Laden fehlgeschlagen: ' + error.message, true);
   BEREICHE = data;
+}
+async function loadZiele() {
+  const { data } = await sb.from('ziele').select('*');
+  ZIELE = data || [];
+}
+
+/* ── Ziele: Soll-Ist über die Hierarchie ───────────────────────────── */
+const jahrVon = m => Number((m || '').slice(0, 4));
+const monVon = m => Number((m || '').slice(5, 7));
+// Monatsziel einer Person (ohne Unterbau)
+const zielEigen = (bid, jahr, monat) => {
+  const z = ZIELE.find(x => x.bereich_id === bid && x.jahr === jahr && x.monat === monat);
+  return z ? num(z.wert) : 0;
+};
+// Monatsziel inkl. Unterbau (rollt hoch wie die Ist-Zahlen)
+const zielSubtree = (bid, jahr, monat) => subtreeIds(bid).reduce((a, id) => a + zielEigen(id, jahr, monat), 0);
+const zielJahrEigen = (bid, jahr) => ZIELE.filter(x => x.bereich_id === bid && x.jahr === jahr).reduce((a, x) => a + num(x.wert), 0);
+const zielJahrSubtree = (bid, jahr) => subtreeIds(bid).reduce((a, id) => a + zielJahrEigen(id, jahr), 0);
+// Ampel: Zielerreichungsgrad → Klasse
+function ampel(ist, soll) {
+  if (!soll) return { pct: null, cls: 'amp-none', txt: '—' };
+  const p = Math.round(ist / soll * 100);
+  return { pct: p, cls: p >= 100 ? 'amp-gruen' : p >= 80 ? 'amp-gelb' : p >= 50 ? 'amp-orange' : 'amp-rot', txt: p + ' %' };
+}
+function ampelBadge(ist, soll) {
+  const a = ampel(ist, soll);
+  const s = el('span', 'amp ' + a.cls, a.txt);
+  if (soll) s.title = eur(ist) + ' von ' + eur(soll);
+  return s;
+}
+async function setZiel(bid, jahr, monat, wert) {
+  const ex = ZIELE.find(x => x.bereich_id === bid && x.jahr === jahr && x.monat === monat);
+  if (ex) { await sb.from('ziele').update({ wert }).eq('id', ex.id); ex.wert = wert; }
+  else {
+    const { data, error } = await sb.from('ziele').insert({ bereich_id: bid, jahr, monat, wert }).select().single();
+    if (error) return toast(error.message, true);
+    ZIELE.push(data);
+  }
 }
 
 /* ── Rollen / Hierarchie ───────────────────────────────────────────── */
@@ -138,8 +185,9 @@ function renderNav() {
   const nav = $('#nav'); nav.innerHTML = '';
   const item = (label, thunk, active) => { const a = el('a', 'dash' + (active ? ' active' : ''), label); a.onclick = () => go(thunk); nav.appendChild(a); };
   item('📊 Controlling', showControlling, curName === 'controlling');
+  item('🎯 Ziele & Planung', showZiele, curName === 'ziele');
   item('🗓 Monatsauswertung', showMonat, curName === 'monat');
-  item('🎯 AV-Kampagne', showKampagne, curName === 'kampagne');
+  item('🚀 AV-Kampagne', showKampagne, curName === 'kampagne');
   item('♻ Recycling', showRecycling, curName === 'recycling');
   const base = baseDepth();
   // Nav zeigt Führungskräfte (Knoten mit Team), Wurzel-Knoten (z.B. Inhaber) + den eigenen Knoten.
@@ -188,9 +236,14 @@ async function showControlling() {
   const umsatz = kunden.reduce((a, r) => a + num(r.potenzial), 0);
   const quote = rows.length ? Math.round(kunden.length / rows.length * 100) : 0;
   const gew = rows.filter(r => r.status === 'offen').reduce((a, r) => a + num(r.potenzial) * (STUFE_WK[r.terminart] || 0.2), 0);
+  const jahr = jahrVon(currentMonat), mon = monVon(currentMonat);
+  const sollM = visibleFks().filter(b => !b.parent_id || !visibleFks().some(x => x.id === b.parent_id))
+    .reduce((a, b) => a + zielSubtree(b.id, jahr, mon), 0);
   const kpis = el('div', 'kpis');
   kpis.append(kpi('Interessenten', rows.length), kpi('Kunden', kunden.length),
-    kpi('Abschlussquote', quote + ' %'), kpi('Umsatz (Kunde)', eur(umsatz)), kpi('Gew. Pipeline', eur(gew)));
+    kpi('Abschlussquote', quote + ' %'), kpi('Umsatz (Kunde)', eur(umsatz)),
+    kpi('Monatsziel', sollM ? eur(sollM) : '—'), kpi('Zielerreichung', ampel(umsatz, sollM).txt),
+    kpi('Gew. Pipeline', eur(gew)));
   v.appendChild(kpis);
 
   const bar = el('div', 'toolbar');
@@ -202,7 +255,8 @@ async function showControlling() {
 
   const t = el('table', 'dash-tbl');
   t.innerHTML = '<thead><tr><th>Mitarbeiter</th><th>Rolle</th><th class="num">Interess.</th>' +
-    '<th class="num">Kunden</th><th class="num">Quote</th><th class="num">Umsatz</th><th class="num">Gew. Pipeline</th></tr></thead>';
+    '<th class="num">Kunden</th><th class="num">Quote</th><th class="num">Umsatz (Ist)</th>' +
+    '<th class="num">Monatsziel</th><th>Ampel</th><th class="num">Gew. Pipeline</th></tr></thead>';
   const tb = el('tbody');
   const scopeIds = visibleFks().map(b => b.id); const base = baseDepth();
   const tableNodes = visibleFks().filter(b => showAllNodes || childrenFks(b.id).length > 0 || b.id === viewer.fkId);
@@ -212,8 +266,10 @@ async function showControlling() {
     const fk = fr.filter(r => r.status === 'kunde');
     const fq = fr.length ? Math.round(fk.length / fr.length * 100) : 0;
     const fg = fr.filter(r => r.status === 'offen').reduce((a, r) => a + num(r.potenzial) * (STUFE_WK[r.terminart] || 0.2), 0);
+    const fUms = fk.reduce((a, r) => a + num(r.potenzial), 0);
+    const fSoll = zielSubtree(b.id, jahr, mon);
     const tr = el('tr');
-    if (!fr.length) tr.classList.add('row-dim');
+    if (!fr.length && !fSoll) tr.classList.add('row-dim');
     const depth = Math.max(0, fkDepth(b) - base);
     const nt = el('td'); nt.style.paddingLeft = (12 + depth * 18) + 'px';
     if (depth) nt.appendChild(el('span', 'tree', '└ '));
@@ -222,7 +278,9 @@ async function showControlling() {
     tr.appendChild(el('td', 'num', fr.length));
     tr.appendChild(el('td', 'num', fk.length));
     const qt = el('td', 'num', fr.length ? fq + ' %' : '—'); qt.style.color = fq >= 50 ? '#15803D' : fq > 0 ? '#B45309' : '#B91C1C'; tr.appendChild(qt);
-    tr.appendChild(el('td', 'num', eur(fk.reduce((a, r) => a + num(r.potenzial), 0))));
+    tr.appendChild(el('td', 'num', eur(fUms)));
+    tr.appendChild(el('td', 'num', fSoll ? eur(fSoll) : '—'));
+    const at = el('td'); at.appendChild(ampelBadge(fUms, fSoll)); tr.appendChild(at);
     tr.appendChild(el('td', 'num', eur(fg)));
     tb.appendChild(tr);
   }
@@ -304,6 +362,92 @@ async function showRecycling() {
   }
   t.appendChild(tb); v.appendChild(t);
   if (!rec.length) v.appendChild(el('div', 'empty', 'Recycling ist leer — nichts abgelehnt.'));
+}
+
+/* ── Ziele & Planung (Jahr → Monat, Soll-Ist je Person) ────────────── */
+async function showZiele() {
+  curName = 'ziele'; renderNav();
+  const jahr = jahrVon(currentMonat);
+  const { data: allE } = await sb.from('eintraege').select('*');
+  const ids = visibleFks().map(b => b.id);
+  const ist = (allE || []).filter(r => ids.includes(r.bereich_id) && r.status === 'kunde' && jahrVon(r.monat) === jahr);
+
+  const v = $('#view'); v.innerHTML = '';
+  v.appendChild(header('ZIELE & PLANUNG', 'Jahresplanung ' + jahr,
+    'Jahresziel setzen → wird auf 12 Monate verteilt. Monatswerte einzeln anpassbar. Zahlen rollen den Unterbau hoch.', 'teal'));
+
+  // Jahres-Navigation
+  const nav = el('div', 'monthnav');
+  const pv = el('button', 'mn-btn', '◀'); pv.onclick = () => { currentMonat = (jahr - 1) + currentMonat.slice(4); rerenderCurrent(); };
+  const nx = el('button', 'mn-btn', '▶'); nx.onclick = () => { currentMonat = (jahr + 1) + currentMonat.slice(4); rerenderCurrent(); };
+  nav.append(pv, el('div', 'mn-lbl', 'Jahr ' + jahr), nx);
+  v.appendChild(nav);
+
+  // KPIs gesamt (Sichtbereich)
+  const sollGes = visibleFks().filter(b => !b.parent_id || !ids.includes(b.parent_id)).reduce((a, b) => a + zielJahrSubtree(b.id, jahr), 0);
+  const istGes = ist.reduce((a, r) => a + num(r.potenzial), 0);
+  const bisMonat = monVon(currentMonat);
+  const sollYtd = visibleFks().filter(b => !b.parent_id || !ids.includes(b.parent_id))
+    .reduce((a, b) => { let s = 0; for (let m = 1; m <= bisMonat; m++) s += zielSubtree(b.id, jahr, m); return a + s; }, 0);
+  const istYtd = ist.filter(r => monVon(r.monat) <= bisMonat).reduce((a, r) => a + num(r.potenzial), 0);
+  const kp = el('div', 'kpis');
+  kp.append(kpi('Jahresziel', eur(sollGes)), kpi('Ist ' + jahr, eur(istGes)),
+    kpi('Zielerreichung', ampel(istGes, sollGes).txt),
+    kpi('Soll bis ' + MON_KURZ[bisMonat - 1], eur(sollYtd)),
+    kpi('Ampel YTD', ampel(istYtd, sollYtd).txt));
+  v.appendChild(kp);
+
+  const info = el('div', 'pillinfo', 'Klick auf ein Monatsfeld zum Ändern. „Jahr setzen" verteilt gleichmäßig auf 12 Monate.');
+  v.appendChild(info);
+
+  // Tabelle: je Person Jahresziel + 12 Monate + Ist + Ampel
+  const wrap = el('div', 'tblscroll');
+  const t = el('table', 'dash-tbl ziel-tbl');
+  let head = '<thead><tr><th>Mitarbeiter</th><th class="num">Jahresziel</th><th class="num">Ist</th><th>Ampel</th>';
+  for (const m of MON_KURZ) head += '<th class="num mon">' + m + '</th>';
+  t.innerHTML = head + '</tr></thead>';
+  const tb = el('tbody');
+  const base = baseDepth();
+  for (const b of visibleFks()) {
+    const eigenJahr = zielJahrEigen(b.id, jahr);
+    const teamJahr = zielJahrSubtree(b.id, jahr);
+    const bIst = ist.filter(r => subtreeIds(b.id).includes(r.bereich_id)).reduce((a, r) => a + num(r.potenzial), 0);
+    const tr = el('tr');
+    const depth = Math.max(0, fkDepth(b) - base);
+    const nt = el('td'); nt.style.paddingLeft = (12 + depth * 18) + 'px';
+    if (depth) nt.appendChild(el('span', 'tree', '└ '));
+    nt.appendChild(el('span', 'dot ' + b.gruppe));
+    const ln = el('a', 'name', ' ' + b.name); ln.onclick = () => go(() => showFk(b.id)); nt.appendChild(ln);
+    if (b.rolle) nt.appendChild(el('span', 'ziel-rolle', ' · ' + b.rolle));
+    tr.appendChild(nt);
+
+    // Jahresziel: eigener Wert editierbar, Team-Summe als Hinweis
+    const jt = el('td', 'num'); const ji = el('input', 'ziel-jahr'); ji.type = 'number'; ji.step = 1000; ji.value = eigenJahr || '';
+    ji.placeholder = '0'; ji.title = 'Jahresziel dieser Person — verteilt sich gleichmäßig auf 12 Monate';
+    ji.onchange = async () => {
+      const w = Math.round((Number(ji.value) || 0) / 12);
+      for (let m = 1; m <= 12; m++) await setZiel(b.id, jahr, m, w);
+      toast('Jahresziel verteilt: 12 × ' + eur(w)); rerenderCurrent();
+    };
+    jt.appendChild(ji);
+    if (teamJahr !== eigenJahr) jt.appendChild(el('div', 'ziel-team', 'Team: ' + eur(teamJahr)));
+    tr.appendChild(jt);
+
+    tr.appendChild(el('td', 'num', eur(bIst)));
+    const at = el('td'); at.appendChild(ampelBadge(bIst, teamJahr)); tr.appendChild(at);
+
+    for (let m = 1; m <= 12; m++) {
+      const td = el('td', 'num mon');
+      const i = el('input', 'ziel-mon'); i.type = 'number'; i.step = 500;
+      i.value = zielEigen(b.id, jahr, m) || '';
+      i.placeholder = '–';
+      i.onchange = async () => { await setZiel(b.id, jahr, m, Number(i.value) || 0); rerenderCurrent(); };
+      if (m === bisMonat) td.classList.add('mon-akt');
+      td.appendChild(i); tr.appendChild(td);
+    }
+    tb.appendChild(tr);
+  }
+  t.appendChild(tb); wrap.appendChild(t); v.appendChild(wrap);
 }
 
 /* ── AV-Kampagnenübersicht (Rollup über die Hierarchie) ────────────── */
@@ -446,11 +590,19 @@ async function renderPipeline(v, b, id) {
   const pipeline = own.reduce((a, r) => a + num(r.potenzial), 0);
   const kundeUms = own.filter(r => r.status === 'kunde').reduce((a, r) => a + num(r.potenzial), 0);
   const oldest = own.filter(r => r.erfasst_am)[0];
+  const soll = zielEigen(id, jahrVon(currentMonat), monVon(currentMonat));
+  const sollTeam = zielSubtree(id, jahrVon(currentMonat), monVon(currentMonat));
   const g = el('div', 'gesamt');
   g.appendChild(el('span', 'lbl', 'EIGENE PIPELINE ' + monthLabel(currentMonat).toUpperCase()));
   const right = el('div', 'gesamt-right');
-  right.appendChild(el('span', 'val', eur(pipeline)));
-  right.appendChild(el('span', 'sub-val', 'davon Kunde: ' + eur(kundeUms) + (oldest ? '  ·  ältester Lead: ' + daysSince(oldest.erfasst_am) + ' Tage' : '')));
+  const valRow = el('div', 'gesamt-valrow');
+  valRow.appendChild(el('span', 'val', eur(pipeline)));
+  if (soll) valRow.appendChild(ampelBadge(kundeUms, soll));
+  right.appendChild(valRow);
+  right.appendChild(el('span', 'sub-val', 'davon Kunde: ' + eur(kundeUms) +
+    (soll ? '  ·  Ziel: ' + eur(soll) : '') +
+    (sollTeam > soll ? '  ·  Team-Ziel: ' + eur(sollTeam) : '') +
+    (oldest ? '  ·  ältester Lead: ' + daysSince(oldest.erfasst_am) + ' Tage' : '')));
   g.appendChild(right);
   v.appendChild(g);
 }
@@ -659,13 +811,14 @@ function refreshTotal() {
 /* ── Realtime ──────────────────────────────────────────────────────── */
 function subscribe() {
   if (realtimeCh) { sb.removeChannel(realtimeCh); realtimeCh = null; }
-  const rerender = () => {
+  const rerender = async () => {
     const a = document.activeElement;
     if (a && (a.tagName === 'INPUT' || a.tagName === 'SELECT')) return;
+    await loadZiele();
     rerenderCurrent();
   };
   realtimeCh = sb.channel('board');
-  for (const table of ['eintraege', 'bereiche', 'avdepot', 'kpue'])
+  for (const table of ['eintraege', 'bereiche', 'avdepot', 'kpue', 'ziele'])
     realtimeCh.on('postgres_changes', { event: '*', schema: 'public', table }, rerender);
   realtimeCh.subscribe();
 }
