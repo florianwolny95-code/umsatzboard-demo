@@ -5,3 +5,6 @@ node_modules/
 # Bleibt bewusst lokal — dieses Repo ist öffentlich.
 tarife.local.js
 provision.local.js
+
+# Vertrauliche tecis-Vertragsdaten (Anlage 5: Provisionssaetze, Volumengrenzen).
+positionen.local.js

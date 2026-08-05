@@ -1,7 +1,7 @@
 /* Demo-Modus: ersetzt Supabase durch localStorage (kein Login, kein Server).
    Aktiv, wenn config.js keine echten Zugangsdaten hat. Beispieldaten (fiktiv). */
 globalThis.DemoDB = (function () {
-  const KEY = 'umsatzboard_demo_v9';
+  const KEY = 'umsatzboard_demo_v10';
   let store = null;
 
   function seed() {
@@ -10,38 +10,38 @@ globalThis.DemoDB = (function () {
       // Namen als "Vorname + Nachname-Initial" (öffentliches Repo). sortierung = DFS-Reihenfolge.
       // gruppe = Farb-Tier: MZ(gold)=Management, SN(teal)=Senior, RM(lila)=Junior, TR(grau)=Trainee/Assistent.
       bereiche: [
-        { id: 32, name: 'Florian W.', rolle: 'Inhaber · Finanzierung', gruppe: 'MZ', parent_id: null, quartalsziel: 0, sortierung: 0 },
-        { id: 1, name: 'Robert M.', rolle: 'Regional Manager', gruppe: 'MZ', parent_id: null, quartalsziel: 0, sortierung: 1 },
-        { id: 2, name: 'Steve N.', rolle: 'Branch Manager', gruppe: 'MZ', parent_id: 1, quartalsziel: 0, sortierung: 2 },
-        { id: 3, name: 'Maximilian Z.', rolle: 'Repräsentanzleiter', gruppe: 'MZ', parent_id: 2, quartalsziel: 0, sortierung: 3 },
-        { id: 12, name: 'Paul P.', rolle: 'Trainee', gruppe: 'TR', parent_id: 3, quartalsziel: 0, sortierung: 4 },
-        { id: 13, name: 'Lukas S.', rolle: 'Trainee', gruppe: 'TR', parent_id: 3, quartalsziel: 0, sortierung: 5 },
-        { id: 14, name: 'Hannes J.', rolle: 'Beraterassistent', gruppe: 'TR', parent_id: 3, quartalsziel: 0, sortierung: 6 },
-        { id: 15, name: 'Nils S.', rolle: 'Beraterassistent', gruppe: 'TR', parent_id: 3, quartalsziel: 0, sortierung: 7 },
-        { id: 4, name: 'Agon A.', rolle: 'Seniorberater', gruppe: 'SN', parent_id: 3, quartalsziel: 0, sortierung: 8 },
-        { id: 16, name: 'Mats S.', rolle: 'Trainee', gruppe: 'TR', parent_id: 4, quartalsziel: 0, sortierung: 9 },
-        { id: 17, name: 'Mara D.', rolle: 'Trainee', gruppe: 'TR', parent_id: 4, quartalsziel: 0, sortierung: 10 },
-        { id: 18, name: 'Julien G.', rolle: 'Trainee', gruppe: 'TR', parent_id: 4, quartalsziel: 0, sortierung: 11 },
-        { id: 19, name: 'Max L.', rolle: 'Beraterassistent', gruppe: 'TR', parent_id: 4, quartalsziel: 0, sortierung: 12 },
-        { id: 5, name: 'Lennart W.', rolle: 'Seniorberater', gruppe: 'SN', parent_id: 3, quartalsziel: 0, sortierung: 13 },
-        { id: 20, name: 'Stian P.', rolle: 'Beraterassistent', gruppe: 'TR', parent_id: 5, quartalsziel: 0, sortierung: 14 },
-        { id: 8, name: 'Tom E.', rolle: 'Juniorberater', gruppe: 'RM', parent_id: 5, quartalsziel: 0, sortierung: 15 },
-        { id: 21, name: 'Erik K.', rolle: 'Trainee', gruppe: 'TR', parent_id: 8, quartalsziel: 0, sortierung: 16 },
-        { id: 22, name: 'Timo L.', rolle: 'Trainee', gruppe: 'TR', parent_id: 8, quartalsziel: 0, sortierung: 17 },
-        { id: 23, name: 'Carl S.', rolle: 'Trainee', gruppe: 'TR', parent_id: 8, quartalsziel: 0, sortierung: 18 },
-        { id: 6, name: 'Aron Z.', rolle: 'Seniorberater', gruppe: 'SN', parent_id: 3, quartalsziel: 0, sortierung: 19 },
-        { id: 24, name: 'Linus A.', rolle: 'Trainee', gruppe: 'TR', parent_id: 6, quartalsziel: 0, sortierung: 20 },
-        { id: 9, name: 'Tim G.', rolle: 'Juniorberater', gruppe: 'RM', parent_id: 6, quartalsziel: 0, sortierung: 21 },
-        { id: 25, name: 'Daniel F.', rolle: 'Trainee', gruppe: 'TR', parent_id: 9, quartalsziel: 0, sortierung: 22 },
-        { id: 26, name: 'Jeremy G.', rolle: 'Trainee', gruppe: 'TR', parent_id: 9, quartalsziel: 0, sortierung: 23 },
-        { id: 27, name: 'Hannes Ge.', rolle: 'Trainee', gruppe: 'TR', parent_id: 9, quartalsziel: 0, sortierung: 24 },
-        { id: 28, name: 'Joe L.', rolle: 'Trainee', gruppe: 'TR', parent_id: 9, quartalsziel: 0, sortierung: 25 },
-        { id: 29, name: 'Roman W.', rolle: 'Trainee', gruppe: 'TR', parent_id: 9, quartalsziel: 0, sortierung: 26 },
-        { id: 7, name: 'Ruben Z.', rolle: 'Seniorberater', gruppe: 'SN', parent_id: 3, quartalsziel: 0, sortierung: 27 },
-        { id: 10, name: 'Franco P.', rolle: 'Juniorberater', gruppe: 'RM', parent_id: 7, quartalsziel: 0, sortierung: 28 },
-        { id: 30, name: 'Niklas F.', rolle: 'Trainee', gruppe: 'TR', parent_id: 10, quartalsziel: 0, sortierung: 29 },
-        { id: 11, name: 'Alexander H.', rolle: 'Juniorberater', gruppe: 'RM', parent_id: 10, quartalsziel: 0, sortierung: 30 },
-        { id: 31, name: 'Nick A.', rolle: 'Trainee', gruppe: 'TR', parent_id: 11, quartalsziel: 0, sortierung: 31 },
+        { id: 32, name: 'Florian W.', rolle: 'Inhaber · Finanzierung', position: 'branch', gruppe: 'MZ', parent_id: null, quartalsziel: 0, sortierung: 0 },
+        { id: 1, name: 'Robert M.', rolle: 'Regional Manager', position: 'regional', gruppe: 'MZ', parent_id: null, quartalsziel: 0, sortierung: 1 },
+        { id: 2, name: 'Steve N.', rolle: 'Branch Manager', position: 'branch', gruppe: 'MZ', parent_id: 1, quartalsziel: 0, sortierung: 2 },
+        { id: 3, name: 'Maximilian Z.', rolle: 'Repräsentanzleiter', position: 'repraesent', gruppe: 'MZ', parent_id: 2, quartalsziel: 0, sortierung: 3 },
+        { id: 12, name: 'Paul P.', rolle: 'Trainee', position: 'trainee', gruppe: 'TR', parent_id: 3, quartalsziel: 0, sortierung: 4 },
+        { id: 13, name: 'Lukas S.', rolle: 'Trainee', position: 'trainee', gruppe: 'TR', parent_id: 3, quartalsziel: 0, sortierung: 5 },
+        { id: 14, name: 'Hannes J.', rolle: 'Beraterassistent', position: 'assistent', gruppe: 'TR', parent_id: 3, quartalsziel: 0, sortierung: 6 },
+        { id: 15, name: 'Nils S.', rolle: 'Beraterassistent', position: 'assistent', gruppe: 'TR', parent_id: 3, quartalsziel: 0, sortierung: 7 },
+        { id: 4, name: 'Agon A.', rolle: 'Seniorberater', position: 'senior', gruppe: 'SN', parent_id: 3, quartalsziel: 0, sortierung: 8 },
+        { id: 16, name: 'Mats S.', rolle: 'Trainee', position: 'trainee', gruppe: 'TR', parent_id: 4, quartalsziel: 0, sortierung: 9 },
+        { id: 17, name: 'Mara D.', rolle: 'Trainee', position: 'trainee', gruppe: 'TR', parent_id: 4, quartalsziel: 0, sortierung: 10 },
+        { id: 18, name: 'Julien G.', rolle: 'Trainee', position: 'trainee', gruppe: 'TR', parent_id: 4, quartalsziel: 0, sortierung: 11 },
+        { id: 19, name: 'Max L.', rolle: 'Beraterassistent', position: 'assistent', gruppe: 'TR', parent_id: 4, quartalsziel: 0, sortierung: 12 },
+        { id: 5, name: 'Lennart W.', rolle: 'Seniorberater', position: 'senior', gruppe: 'SN', parent_id: 3, quartalsziel: 0, sortierung: 13 },
+        { id: 20, name: 'Stian P.', rolle: 'Beraterassistent', position: 'assistent', gruppe: 'TR', parent_id: 5, quartalsziel: 0, sortierung: 14 },
+        { id: 8, name: 'Tom E.', rolle: 'Juniorberater', position: 'junior', gruppe: 'RM', parent_id: 5, quartalsziel: 0, sortierung: 15 },
+        { id: 21, name: 'Erik K.', rolle: 'Trainee', position: 'trainee', gruppe: 'TR', parent_id: 8, quartalsziel: 0, sortierung: 16 },
+        { id: 22, name: 'Timo L.', rolle: 'Trainee', position: 'trainee', gruppe: 'TR', parent_id: 8, quartalsziel: 0, sortierung: 17 },
+        { id: 23, name: 'Carl S.', rolle: 'Trainee', position: 'trainee', gruppe: 'TR', parent_id: 8, quartalsziel: 0, sortierung: 18 },
+        { id: 6, name: 'Aron Z.', rolle: 'Seniorberater', position: 'senior', gruppe: 'SN', parent_id: 3, quartalsziel: 0, sortierung: 19 },
+        { id: 24, name: 'Linus A.', rolle: 'Trainee', position: 'trainee', gruppe: 'TR', parent_id: 6, quartalsziel: 0, sortierung: 20 },
+        { id: 9, name: 'Tim G.', rolle: 'Juniorberater', position: 'junior', gruppe: 'RM', parent_id: 6, quartalsziel: 0, sortierung: 21 },
+        { id: 25, name: 'Daniel F.', rolle: 'Trainee', position: 'trainee', gruppe: 'TR', parent_id: 9, quartalsziel: 0, sortierung: 22 },
+        { id: 26, name: 'Jeremy G.', rolle: 'Trainee', position: 'trainee', gruppe: 'TR', parent_id: 9, quartalsziel: 0, sortierung: 23 },
+        { id: 27, name: 'Hannes Ge.', rolle: 'Trainee', position: 'trainee', gruppe: 'TR', parent_id: 9, quartalsziel: 0, sortierung: 24 },
+        { id: 28, name: 'Joe L.', rolle: 'Trainee', position: 'trainee', gruppe: 'TR', parent_id: 9, quartalsziel: 0, sortierung: 25 },
+        { id: 29, name: 'Roman W.', rolle: 'Trainee', position: 'trainee', gruppe: 'TR', parent_id: 9, quartalsziel: 0, sortierung: 26 },
+        { id: 7, name: 'Ruben Z.', rolle: 'Seniorberater', position: 'senior', gruppe: 'SN', parent_id: 3, quartalsziel: 0, sortierung: 27 },
+        { id: 10, name: 'Franco P.', rolle: 'Juniorberater', position: 'junior', gruppe: 'RM', parent_id: 7, quartalsziel: 0, sortierung: 28 },
+        { id: 30, name: 'Niklas F.', rolle: 'Trainee', position: 'trainee', gruppe: 'TR', parent_id: 10, quartalsziel: 0, sortierung: 29 },
+        { id: 11, name: 'Alexander H.', rolle: 'Juniorberater', position: 'junior', gruppe: 'RM', parent_id: 10, quartalsziel: 0, sortierung: 30 },
+        { id: 31, name: 'Nick A.', rolle: 'Trainee', position: 'trainee', gruppe: 'TR', parent_id: 11, quartalsziel: 0, sortierung: 31 },
       ],
       sub_leiter: [],
       // Beispiel-Interessenten über 3 Monate (Mai–Juli 2026) — direkt an Personen (bereich_id).
@@ -116,6 +116,17 @@ globalThis.DemoDB = (function () {
         { id: 1, bereich_id: 3, monat: '2026-07', kunde: 'Familie Berger', tarif: 'Basisvorsorge (Platzhalter)', betrag: 150, jahre: 30, einmal: 0, satz: 0, sortierung: 10 },
         { id: 2, bereich_id: 3, monat: '2026-07', kunde: 'Dr. Krause', tarif: 'Berufsunfähigkeit (Platzhalter)', betrag: 120, jahre: 35, einmal: 0, satz: 0, sortierung: 20 },
         { id: 3, bereich_id: 4, monat: '2026-07', kunde: 'Familie Ott', tarif: 'Fonds-Sparplan (Platzhalter)', betrag: 200, jahre: 10, einmal: 5000, satz: 0, sortierung: 10 },
+        { id: 4, bereich_id: 4, monat: '2026-07', kunde: 'Sabine Lux', tarif: 'Riester (Platzhalter)', betrag: 100, jahre: 30, einmal: 0, satz: 0, sortierung: 20 },
+        { id: 5, bereich_id: 5, monat: '2026-07', kunde: 'Familie Brandt', tarif: 'Privatvorsorge (Platzhalter)', betrag: 250, jahre: 35, einmal: 0, satz: 0, sortierung: 10 },
+        { id: 6, bereich_id: 5, monat: '2026-07', kunde: 'Praxis Sonne', tarif: 'Private Krankenversicherung (Platzhalter)', betrag: 480, jahre: 0, einmal: 0, satz: 0, sortierung: 20 },
+        { id: 7, bereich_id: 6, monat: '2026-07', kunde: 'Autohaus Krüger', tarif: 'Baufinanzierung (Platzhalter)', betrag: 320000, jahre: 0, einmal: 0, satz: 0, sortierung: 10 },
+        { id: 8, bereich_id: 7, monat: '2026-07', kunde: 'Klein AG', tarif: 'Berufsunfähigkeit (Platzhalter)', betrag: 180, jahre: 35, einmal: 0, satz: 0, sortierung: 10 },
+        { id: 9, bereich_id: 8, monat: '2026-07', kunde: 'Bau Süd GmbH', tarif: 'Basisvorsorge (Platzhalter)', betrag: 400, jahre: 30, einmal: 0, satz: 0, sortierung: 10 },
+        { id: 10, bereich_id: 9, monat: '2026-07', kunde: 'Kita Sonnenschein', tarif: 'Rechtsschutz (Platzhalter)', betrag: 45, jahre: 0, einmal: 0, satz: 0, sortierung: 10 },
+        { id: 11, bereich_id: 12, monat: '2026-07', kunde: 'Familie Berger', tarif: 'Risikoleben (Platzhalter)', betrag: 60, jahre: 30, einmal: 0, satz: 0, sortierung: 10 },
+        { id: 12, bereich_id: 16, monat: '2026-07', kunde: 'Marco Diehl', tarif: 'Bausparen (Platzhalter)', betrag: 50000, jahre: 0, einmal: 0, satz: 0, sortierung: 10 },
+        { id: 13, bereich_id: 32, monat: '2026-07', kunde: 'Familie Neumann', tarif: 'Baufinanzierung (Platzhalter)', betrag: 450000, jahre: 0, einmal: 0, satz: 0, sortierung: 10 },
+        { id: 14, bereich_id: 32, monat: '2026-07', kunde: 'Dr. Seifert', tarif: 'Immobilienvermittlung (Platzhalter)', betrag: 380000, jahre: 0, einmal: 0, satz: 7, sortierung: 20 },
       ],
     };
   }
@@ -138,7 +149,7 @@ globalThis.DemoDB = (function () {
     return out;
   }
   const DEFAULTS = {
-    bereiche: { rolle: '', gruppe: 'SN', parent_id: null, quartalsziel: 0, sortierung: 0 },
+    bereiche: { rolle: '', gruppe: 'SN', parent_id: null, position: null, karriereweg: null, quartalsziel: 0, sortierung: 0 },
     sub_leiter: { sortierung: 0 },
     eintraege: { kunde: null, monat: null, status: 'offen', ablehnungsgrund: null, potenzial: 0, terminart: null, notiz: null, erfasst_am: null, sortierung: 0 },
     avdepot: { kunde: null, status: 'offen', notiz: null, erfasst_am: null, sortierung: 0 },

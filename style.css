@@ -176,6 +176,17 @@ input.ziel-jahr:focus,input.ziel-mon:focus{outline:none;border-color:var(--teal)
 .vol-erg{font-weight:700;color:var(--ink);font-variant-numeric:tabular-nums;white-space:nowrap}
 .pillinfo.warn{background:#FEF3C7;border-color:#FDE68A;color:#B45309}
 
+/* Karriere & Provision */
+.karr-tbl{min-width:1150px}
+.karr-tbl select.pos-sel{background:var(--soft);color:var(--slate);border:1px solid var(--line);
+  border-radius:20px;padding:5px 9px;font-size:12px;font-weight:600;min-width:150px}
+.karr-next{min-width:170px}
+.karr-name{font-size:12px;font-weight:600;color:var(--ink);margin-bottom:4px}
+.karr-bar{width:100%;min-width:130px}
+.karr-need{font-size:10.5px;color:var(--grey);margin-top:3px;font-variant-numeric:tabular-nums}
+.karr-top{font-size:12px;font-weight:700;color:var(--gold)}
+.karr-aus{font-weight:700;color:var(--ink)}
+
 /* ── App layout ── */
 .app{display:flex;height:100%}
 .sidebar{width:230px;flex:0 0 230px;background:var(--ink);color:#cbd5e1;

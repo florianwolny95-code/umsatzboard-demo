@@ -6,7 +6,9 @@ create table if not exists bereiche (
   id           bigint generated always as identity primary key,
   name         text not null unique,
   gruppe       text not null check (gruppe in ('SN','RM','MZ','TR')),  -- Farb-Tier (Mgmt/Senior/Junior/Trainee)
-  rolle        text,          -- z.B. Regional Manager, Seniorberater, Juniorberater
+  rolle        text,          -- Klartext-Rolle (Anzeige)
+  position     text,          -- Schlüssel aus dem Positionskatalog (Anlage 5), z.B. 'senior', 'branch'
+  karriereweg  text,          -- 'fuehrung' | 'profi' — Weg nach der Berater-Ebene
   parent_id    bigint references bereiche(id) on delete set null,  -- übergeordnete FK (Hierarchie)
   quartalsziel numeric not null default 0,
   sortierung   int not null default 0

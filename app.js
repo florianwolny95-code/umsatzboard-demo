@@ -187,6 +187,7 @@ function renderNav() {
   item('📊 Controlling', showControlling, curName === 'controlling');
   item('🎯 Ziele & Planung', showZiele, curName === 'ziele');
   item('🧮 Volumenrechner', showVolumen, curName === 'volumen');
+  item('🏅 Karriere & Provision', showKarriere, curName === 'karriere');
   item('🗓 Monatsauswertung', showMonat, curName === 'monat');
   item('🚀 AV-Kampagne', showKampagne, curName === 'kampagne');
   item('♻ Recycling', showRecycling, curName === 'recycling');
@@ -363,6 +364,129 @@ async function showRecycling() {
   }
   t.appendChild(tb); v.appendChild(t);
   if (!rec.length) v.appendChild(el('div', 'empty', 'Recycling ist leer — nichts abgelehnt.'));
+}
+
+/* ── Karriere & Provision (Systematik tecis Anlage 5) ──────────────── */
+const positionen = () => (window.POSITIONEN || []).slice().sort((a, b) => a.stufe - b.stufe);
+const posOf = b => positionen().find(p => p.key === (b && b.position)) || null;
+const promilleOf = b => { const p = posOf(b); return p ? num(p.promille) : 0; };
+// nächste Stufe im selben Karriereweg (Basis läuft in Führung oder Profi weiter)
+function naechstePos(b) {
+  const p = posOf(b); if (!p) return positionen()[0] || null;
+  const weg = p.weg === 'basis' ? (b.karriereweg || 'fuehrung') : p.weg;
+  const kandidaten = positionen().filter(x => x.stufe > p.stufe && (x.weg === weg || x.weg === 'basis'));
+  return kandidaten[0] || null;
+}
+// Eigenvolumen einer Person = Summe ihrer Positionen im Volumenrechner (Bewertungszeitraum = geladene Zeilen)
+function eigenVolumen(bid, volRows) {
+  return (volRows || []).filter(r => r.bereich_id === bid)
+    .reduce((a, r) => a + volumen(tarife().find(x => x.name === r.tarif), r), 0);
+}
+const teamVolumen = (bid, volRows) => subtreeIds(bid).reduce((a, id) => a + eigenVolumen(id, volRows), 0);
+// Provision: Eigenanteil + Differenzprovision auf die direkt Zugeordneten (Anlage 5, I.7)
+function provision(b, volRows) {
+  const satz = promilleOf(b);
+  const eigen = eigenVolumen(b.id, volRows) * satz / 1000;
+  let diff = 0;
+  for (const k of childrenFks(b.id)) {
+    const delta = satz - promilleOf(k);
+    if (delta > 0) diff += teamVolumen(k.id, volRows) * delta / 1000;
+  }
+  const brutto = eigen + diff;
+  const p = posOf(b);
+  const einbehalt = brutto * (p ? num(p.einbehalt) : 0) / 100;
+  return { satz, eigen, diff, brutto, einbehalt, auszahlung: brutto - einbehalt };
+}
+
+async function showKarriere() {
+  curName = 'karriere'; renderNav();
+  const { data: allVol } = await sb.from('volumen').select('*');
+  const ids = visibleFks().map(b => b.id);
+  const volRows = (allVol || []).filter(r => ids.includes(r.bereich_id));
+
+  const v = $('#view'); v.innerHTML = '';
+  v.appendChild(header('KARRIERE & PROVISION', 'Positionen und Stufenfortschritt',
+    'Systematik der tecis Anlage 5: Position → Provisionssatz, Volumen → nächste Stufe.', 'gold'));
+
+  const q = el('div', 'pillinfo', 'Positions-Quelle: ' + (window.POSITIONEN_QUELLE || 'unbekannt'));
+  if (!/Anlage 5/.test(window.POSITIONEN_QUELLE || '')) q.classList.add('warn');
+  v.appendChild(q);
+
+  const gesVol = visibleFks().filter(b => !ids.includes(b.parent_id)).reduce((a, b) => a + teamVolumen(b.id, volRows), 0);
+  const gesProv = visibleFks().reduce((a, b) => a + provision(b, volRows).brutto, 0);
+  const kp = el('div', 'kpis');
+  kp.append(kpi('Volumen gesamt', gesVol.toLocaleString('de-DE', { maximumFractionDigits: 0 })),
+    kpi('Provision (Struktur)', eur(gesProv)),
+    kpi('Positionen besetzt', visibleFks().filter(b => posOf(b)).length + ' / ' + visibleFks().length));
+  v.appendChild(kp);
+
+  const wrap = el('div', 'tblscroll');
+  const t = el('table', 'dash-tbl karr-tbl');
+  t.innerHTML = '<thead><tr><th>Mitarbeiter</th><th>Position</th><th class="num">‰</th>' +
+    '<th class="num">Eigenvolumen</th><th class="num">Teamvolumen</th><th>Nächste Stufe</th>' +
+    '<th class="num">Eigenprov.</th><th class="num">Differenzprov.</th><th class="num">Auszahlung</th></tr></thead>';
+  const tb = el('tbody');
+  const base = baseDepth();
+  for (const b of visibleFks()) {
+    const ev = eigenVolumen(b.id, volRows), tv = teamVolumen(b.id, volRows);
+    const pr = provision(b, volRows), p = posOf(b), nx = naechstePos(b);
+    const tr = el('tr');
+    const depth = Math.max(0, fkDepth(b) - base);
+    const nt = el('td'); nt.style.paddingLeft = (12 + depth * 18) + 'px';
+    if (depth) nt.appendChild(el('span', 'tree', '└ '));
+    nt.appendChild(el('span', 'dot ' + b.gruppe));
+    const ln = el('a', 'name', ' ' + b.name); ln.onclick = () => go(() => showFk(b.id)); nt.appendChild(ln);
+    tr.appendChild(nt);
+
+    // Position wählbar
+    const pt = el('td'); const sel = el('select', 'statussel pos-sel');
+    sel.appendChild(new Option('— keine —', ''));
+    let lastWeg = null, grp = null;
+    const WEG_LBL = { basis: 'Qualifikation & Berater', fuehrung: 'Führungskarriere', profi: 'Profiberaterkarriere' };
+    for (const po of positionen()) {
+      if (po.weg !== lastWeg) { grp = window.document.createElement('optgroup'); grp.label = WEG_LBL[po.weg] || po.weg; sel.appendChild(grp); lastWeg = po.weg; }
+      const o = new Option(po.name, po.key); if (b.position === po.key) o.selected = true; grp.appendChild(o);
+    }
+    sel.onchange = async () => {
+      await sb.from('bereiche').update({ position: sel.value || null }).eq('id', b.id);
+      await loadBereiche(); rerenderCurrent();
+    };
+    pt.appendChild(sel); tr.appendChild(pt);
+
+    tr.appendChild(el('td', 'num', p ? String(p.promille).replace('.', ',') : '—'));
+    tr.appendChild(el('td', 'num', ev.toLocaleString('de-DE', { maximumFractionDigits: 0 })));
+    tr.appendChild(el('td', 'num', tv.toLocaleString('de-DE', { maximumFractionDigits: 0 })));
+
+    // Fortschritt zur nächsten Stufe
+    const ft = el('td', 'karr-next');
+    if (!nx) ft.appendChild(el('span', 'karr-top', '★ Spitzenposition'));
+    else {
+      const zielEigen = num(nx.eigen), zielTeam = num(nx.team);
+      const relEigen = zielEigen ? ev / zielEigen : 1;
+      const relTeam = zielTeam ? tv / zielTeam : 1;
+      const pct = Math.round(Math.min(relEigen, relTeam) * 100);
+      ft.appendChild(el('div', 'karr-name', nx.name));
+      const bar = el('div', 'bar karr-bar'); const sp = el('span');
+      sp.style.width = Math.min(100, pct) + '%'; if (pct >= 100) sp.style.background = '#15803D';
+      bar.appendChild(sp); ft.appendChild(bar);
+      const need = [];
+      if (zielEigen) need.push('Eigen ' + Math.round(relEigen * 100) + ' %');
+      if (zielTeam) need.push('Team ' + Math.round(relTeam * 100) + ' %');
+      ft.appendChild(el('div', 'karr-need', need.join(' · ') || '—'));
+    }
+    tr.appendChild(ft);
+
+    tr.appendChild(el('td', 'num', pr.eigen ? eur(pr.eigen) : '—'));
+    tr.appendChild(el('td', 'num', pr.diff ? eur(pr.diff) : '—'));
+    const at = el('td', 'num karr-aus', pr.brutto ? eur(pr.auszahlung) : '—');
+    if (pr.brutto && p) at.title = 'Brutto ' + eur(pr.brutto) + ' − ' + p.einbehalt + ' % Haftungseinbehalt';
+    tr.appendChild(at);
+    tb.appendChild(tr);
+  }
+  t.appendChild(tb); wrap.appendChild(t); v.appendChild(wrap);
+
+  v.appendChild(el('div', 'pillinfo', 'Differenzprovision = (eigener Satz − Satz der direkt zugeordneten Person) × deren Teamvolumen. ' +
+    'Auszahlung nach Abzug des Haftungseinbehalts. 40/70/90-Regelung und Qualitätsquote sind noch nicht abgebildet.'));
 }
 
 /* ── Volumenrechner (Systematik tecis Anlage 4) ────────────────────── */
