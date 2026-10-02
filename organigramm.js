@@ -8,8 +8,9 @@
  *     Hierarchie über „FK-Partnernummer“ bzw. „Führungskraft“ oder über „Ebene“.
  *   - Eingerückter Text (eine Person je Zeile, Einrückung = Ebene), z. B. aus einem Baum kopiert.
  *
- * ACHTUNG: Das Format des Organigramm-Exports im CRM ist noch nicht an einer echten Datei
- * geprüft (kein Führungskraft-Zugang, Stand 02.10.2026). Darum die tolerante Erkennung.
+ * Befund 02.10.2026: Das CRM-Organigramm exportiert nur als Bild (SVG), nicht als Tabelle.
+ * Strukturlisten mit Spalten kommen eher aus dem tIS oder aus Excel; Spaltennamen sind dort
+ * nicht festgelegt, darum die tolerante Erkennung.
  */
 (function (root) {
   const s = v => String(v ?? '').replace(/\u00a0/g, ' ').trim();

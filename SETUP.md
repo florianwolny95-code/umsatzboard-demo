@@ -110,8 +110,8 @@ hängende Provision, Aufgaben.
 ## Struktur & Organigramm-Import (Führungskräfte)
 „👥 Struktur & Import“ zeigt die eigene Struktur (Partnernummer und Login-E-Mail direkt änderbar) und legt
 viele Partner auf einmal an:
-1. Organigramm aus dem CRM als **Excel oder CSV** exportieren, über „⇪ Datei wählen“ laden, oder die
-   Struktur als Text einfügen (Tabelle aus Excel kopieren, oder eingerückte Liste „Name (Position)“).
+1. Strukturliste als **Excel oder CSV** über „⇪ Datei wählen“ laden, oder die Struktur als Text einfügen
+   (Tabelle aus Excel kopieren, oder eingerückte Liste „Name (Position)“).
 2. Festlegen, unter wem die oberste Zeile hängt (FK: nur im eigenen Unterbau).
 3. Vorschau prüfen (neu / aktualisieren / schon vorhanden / übersprungen, mit Hinweisen), dann übernehmen.
 
@@ -119,9 +119,11 @@ Erkannt werden u. a. die Spalten *Partnernummer / VP-Nr.*, *Name* bzw. *Vorname 
 *FK-Partnernummer* oder *Führungskraft* (Name), *Ebene*, *E-Mail*, *Status*; Kopfzeile darf tiefer stehen
 (Titelzeilen davor sind egal). Abgleich mit Bestehenden über Partnernummer, sonst Name. Ausgeschiedene
 werden übersprungen, Kreisbezüge abgewiesen. „Vorlage herunterladen“ liefert ein Beispiel.
-> ⚠️ Das Format eines echten CRM-Organigramm-Exports ist noch **nicht an einer echten Datei geprüft**.
-> Wenn eine Spalte nicht erkannt wird, zeigt die Vorschau das an; dann Spaltenkopf anpassen oder
-> den Synonymen in `organigramm.js` (`SPALTEN`) ergänzen.
+> ⚠️ **Befund 02.10.2026:** Das CRM-Organigramm (Team › Organigramm) lässt sich nur als **Bild (SVG)**
+> exportieren, nicht als Tabelle. Eine Strukturliste mit Spalten kommt eher aus dem tIS (Team-Sichten im
+> Bestandsreporting, braucht einen Zugang mit Team) oder wird in Excel angelegt. Wenn eine Spalte nicht
+> erkannt wird, zeigt die Vorschau das an; dann Spaltenkopf anpassen oder den Synonymen in
+> `organigramm.js` (`SPALTEN`) ergänzen.
 
 ## Tests
 ```

@@ -1389,15 +1389,15 @@ async function showStruktur() {
   curName = 'struktur'; renderNav();
   const v = $('#view'); v.innerHTML = '';
   v.appendChild(header('STRUKTUR', 'Struktur & Organigramm-Import',
-    (isAdmin() ? 'Gesamte Organisation' : scopedName()) + ' · Partner einzeln pflegen oder die ganze Struktur aus dem CRM-Organigramm übernehmen', 'gold'));
+    (isAdmin() ? 'Gesamte Organisation' : scopedName()) + ' · Partner einzeln pflegen oder die ganze Struktur aus einer Liste übernehmen', 'gold'));
   if (orgAnker === undefined || (orgAnker !== null && !visibleFks().some(b => b.id === orgAnker)) || (orgAnker === null && !isAdmin()))
     orgAnker = isAdmin() ? null : viewer.fkId;
 
   const box = el('div', 'av-intro org-box');
-  box.appendChild(el('p', 'av-lead', 'Organigramm aus dem CRM als Excel- oder CSV-Datei laden, oder die Tabelle bzw. den Baum im CRM markieren, kopieren und hier einfügen. ' +
+  box.appendChild(el('p', 'av-lead', 'Strukturliste als Excel- oder CSV-Datei laden (z. B. aus dem tIS oder selbst angelegt), oder eine Tabelle bzw. einen eingerückten Baum kopieren und hier einfügen. ' +
     'Erkannt werden Spalten wie Name (oder Vorname und Nachname), Partnernummer, Position, Führungskraft (Name oder Partnernummer), Ebene und E-Mail. ' +
     'Ohne Spalten geht auch ein eingerückter Baum: eine Person je Zeile, Einrückung = Ebene.'));
-  box.appendChild(el('div', 'pillinfo warn', 'Das Exportformat des CRM-Organigramms ist noch nicht an einer echten Datei geprüft. Vor dem Übernehmen die Vorschau kontrollieren.'));
+  box.appendChild(el('div', 'pillinfo warn', 'Das CRM-Organigramm exportiert nur ein Bild (SVG), keine Tabelle. Vor dem Übernehmen die Vorschau kontrollieren.'));
   const ta = el('textarea', 'org-text'); ta.rows = 7; ta.value = orgText;
   ta.placeholder = 'Partnernummer;Name;Position;FK-Partnernummer;E-Mail\n900001;Anna Beispiel;Repräsentanzleiter;;\n900002;Ben Muster;Seniorberater;900001;\n\noder\n\nAnna Beispiel (Repräsentanzleiter)\n  Ben Muster (Seniorberater)\n    Carla Probe (Juniorberater)';
   ta.oninput = () => { orgText = ta.value; };
