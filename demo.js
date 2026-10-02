@@ -1,8 +1,147 @@
 /* Demo-Modus: ersetzt Supabase durch localStorage (kein Login, kein Server).
    Aktiv, wenn config.js keine echten Zugangsdaten hat. Beispieldaten (fiktiv). */
 globalThis.DemoDB = (function () {
-  const KEY = 'umsatzboard_demo_v12';
+  const KEY = 'umsatzboard_demo_v13';   // neue Version → Beispieldaten mit Monatsplanung und Profiberater
   let store = null;
+  // Kennzahlen-Datei der Bereichsauswertung (Fantasiedaten, Grenze aus dem Platzhalter-Positionskatalog)
+  const MUSTER_KENNZAHLEN = {
+    "format": "wolny-geschaeftsstand",
+    "version": 1,
+    "titel": "Bereichsauswertung Profiberater",
+    "monat": "2026-09",
+    "stand": "2026-10-02",
+    "bericht": {
+      "titel": "Mein Geschäftsstand September 2026 (Muster, Fantasiedaten)",
+      "url": null
+    },
+    "partner": {
+      "partnernummer": null
+    },
+    "karriere": {
+      "stufeHeute": "Senior Sales Consultant",
+      "naechsteStufe": "Sales Manager",
+      "grenzeEigenvolumen": 2000000,
+      "fenstermonate": 6,
+      "zielMonat": "2026-12",
+      "eigenvolumenJeMonat": [
+        {
+          "monat": "2026-04",
+          "wert": 248200
+        },
+        {
+          "monat": "2026-05",
+          "wert": 262900
+        },
+        {
+          "monat": "2026-06",
+          "wert": 301300
+        },
+        {
+          "monat": "2026-07",
+          "wert": 239800
+        },
+        {
+          "monat": "2026-08",
+          "wert": 288600
+        },
+        {
+          "monat": "2026-09",
+          "wert": 271600
+        }
+      ]
+    },
+    "qualitaet": {
+      "bqq": 2.1,
+      "grenze": 10
+    },
+    "produktion": {
+      "eingereichtLfdJahr": 2527500,
+      "zumVorjahrProzent": 12.4,
+      "pipelineAntraege": 14,
+      "pipelineVolumen": 386400
+    },
+    "ampeln": [
+      {
+        "feld": "Karriere",
+        "ampel": "gelb",
+        "wert": "81 %",
+        "text": "Mit dem bisherigen Tempo bleibt die Stufe außer Reichweite."
+      },
+      {
+        "feld": "Qualität",
+        "ampel": "gruen",
+        "wert": "2,1 %",
+        "text": "Eigene BQQ weit unter der Grenze."
+      },
+      {
+        "feld": "Produktion",
+        "ampel": "gruen",
+        "wert": "+12,4 %",
+        "text": "14 Anträge mit 386.400 € in der Pipeline."
+      },
+      {
+        "feld": "Provision",
+        "ampel": "rot",
+        "wert": "1 Sperre",
+        "text": "12.000 € blockiert, Rabattgenehmigung fehlt."
+      },
+      {
+        "feld": "Kunden",
+        "ampel": "gelb",
+        "wert": "9 von 23",
+        "text": "Neukunden ohne Beruf oder Einkommen."
+      }
+    ],
+    "provision": [
+      {
+        "punkt": "ANB offen",
+        "faelle": 2,
+        "detail": "1 mit Frist vorbei",
+        "ampel": "gelb"
+      },
+      {
+        "punkt": "VNB offen",
+        "faelle": 3,
+        "detail": "gefährdet 6.900 €",
+        "ampel": "gelb"
+      },
+      {
+        "punkt": "Provisionssperren",
+        "faelle": 1,
+        "detail": "Rabattgenehmigung, 12.000 €",
+        "ampel": "rot"
+      },
+      {
+        "punkt": "Anträge ohne Policierung über 30 Tage",
+        "faelle": 4,
+        "detail": "58.300 €",
+        "ampel": "gelb"
+      },
+      {
+        "punkt": "Ohne Erstabrechnung",
+        "faelle": 0,
+        "detail": null,
+        "ampel": "gruen"
+      }
+    ],
+    "aufgaben": [
+      {
+        "titel": "Provisionssperre lösen",
+        "frist": "bis 09.10.",
+        "text": "Rabattgenehmigung nachweisen, dann ist die Provision frei."
+      },
+      {
+        "titel": "Pipeline policieren",
+        "frist": "bis 18.10.",
+        "text": "Vier Anträge liegen über 30 Tage ohne Policierung; sie tragen den Weg zur Stufe."
+      },
+      {
+        "titel": "Monatsschnitt anheben",
+        "frist": "ab Oktober",
+        "text": "Für die nächste Stufe im Dezember braucht es 400.000 € je Monat statt heute rund 269.000 €."
+      }
+    ]
+  };
 
   function seed() {
     return {
@@ -42,6 +181,8 @@ globalThis.DemoDB = (function () {
         { id: 30, name: 'Niklas F.', rolle: 'Trainee', position: 'trainee', gruppe: 'TR', parent_id: 10, quartalsziel: 0, sortierung: 29 },
         { id: 11, name: 'Alexander H.', rolle: 'Juniorberater', position: 'junior', gruppe: 'RM', parent_id: 10, quartalsziel: 0, sortierung: 30 },
         { id: 31, name: 'Nick A.', rolle: 'Trainee', position: 'trainee', gruppe: 'TR', parent_id: 11, quartalsziel: 0, sortierung: 31 },
+        // Profiberaterin (fiktiv): eigene Version des Boards mit Geschäftsstand aus der Bereichsauswertung
+        { id: 33, name: 'Clara B.', rolle: 'Senior Sales Consultant', position: 'ssc', karriereweg: 'profi', gruppe: 'SN', parent_id: 3, quartalsziel: 0, sortierung: 32 },
       ],
       sub_leiter: [],
       // Beispiel-Interessenten über 3 Monate (Mai–Juli 2026) — direkt an Personen (bereich_id).
@@ -85,6 +226,8 @@ globalThis.DemoDB = (function () {
         { id: 33, bereich_id: 28, kunde: 'Familie Kaminski', monat: '2026-05', status: 'kunde', ablehnungsgrund: null, potenzial: 40000, terminart: 'S3', erfasst_am: '2026-05-02', notiz: '', sortierung: 10 },
         { id: 34, bereich_id: 19, kunde: 'Malermeister Timm', monat: '2026-05', status: 'abgelehnt', ablehnungsgrund: 'Kein Bedarf', potenzial: 20000, terminart: 'S1', erfasst_am: '2026-05-10', notiz: '', sortierung: 20 },
         { id: 35, bereich_id: 21, kunde: 'Familie Reuter', monat: '2026-05', status: 'kunde', ablehnungsgrund: null, potenzial: 50000, terminart: 'S3', erfasst_am: '2026-04-20', notiz: '', sortierung: 20 },
+        { id: 36, bereich_id: 33, kunde: 'Familie Kern', monat: '2026-07', status: 'offen', ablehnungsgrund: null, potenzial: 150000, terminart: 'S2', erfasst_am: '2026-07-04', notiz: 'Altersvorsorge, Konzept steht', sortierung: 10 },
+        { id: 37, bereich_id: 33, kunde: 'Herr Sander', monat: '2026-07', status: 'kunde', ablehnungsgrund: null, potenzial: 60000, terminart: 'S3', erfasst_am: '2026-06-22', notiz: '', sortierung: 20 },
       ],
       // Kampagne „Privates Altersvorsorgedepot" — eigene Kandidatenliste je Person
       avdepot: [
@@ -108,6 +251,8 @@ globalThis.DemoDB = (function () {
         { id: 7, bereich_id: 16, name: 'Kevin Roth', typ: 'potenzial', prio: 'C', erfasst_am: '2026-07-08', notiz: 'Studienkollege', sortierung: 10 },
         { id: 8, bereich_id: 16, name: 'Laura Simon', typ: 'potenzial', prio: 'B', erfasst_am: '2026-07-10', notiz: '', sortierung: 20 },
         { id: 9, bereich_id: 8, name: 'Bauunternehmen Falk', typ: 'interessent', prio: 'A', erfasst_am: '2026-06-12', notiz: 'über Bau Süd', sortierung: 10 },
+        { id: 10, bereich_id: 33, name: 'Familie Kern', typ: 'interessent', prio: 'A', erfasst_am: '2026-06-28', notiz: 'Altersvorsorge', sortierung: 10 },
+        { id: 11, bereich_id: 33, name: 'Praxis Dr. Lenz', typ: 'kunde', prio: 'A', erfasst_am: '2026-05-12', notiz: 'BU für das Praxisteam', sortierung: 20 },
       ],
       // Ziele 2026 — Monatswerte je Person (Jahresziel = Summe der 12 Monate)
       ziele: zieleSeed(),
@@ -129,6 +274,7 @@ globalThis.DemoDB = (function () {
         { id: 13, bereich_id: 3,  monat: '2026-06', kontakte: 35, s1: 12, s2: 7, s3: 5, abschluss: 3 },
         { id: 14, bereich_id: 4,  monat: '2026-06', kontakte: 50, s1: 17, s2: 10, s3: 6, abschluss: 4 },
         { id: 15, bereich_id: 8,  monat: '2026-06', kontakte: 58, s1: 21, s2: 13, s3: 9, abschluss: 5 },
+        { id: 16, bereich_id: 33, monat: '2026-07', kontakte: 30, s1: 12, s2: 9, s3: 6, abschluss: 4 },
       ],
       // Volumenrechner — Beispielpositionen (Tarifnamen aus tarife.js)
       volumen: [
@@ -147,7 +293,42 @@ globalThis.DemoDB = (function () {
         { id: 13, bereich_id: 32, monat: '2026-07', kunde: 'Familie Neumann', gesellschaft: 'Finanzierung (Demo)', tarif: 'Baufinanzierung Darlehenssumme', betrag: 450000, jahre: 0, einmal: 0, satz: 0, sortierung: 10 },
         { id: 14, bereich_id: 32, monat: '2026-07', kunde: 'Dr. Seifert', gesellschaft: 'Finanzierung (Demo)', tarif: 'Immobilienvermittlung', betrag: 380000, jahre: 0, einmal: 0, satz: 7, sortierung: 20 },
       ],
+      // Monatsplanung: was je Person im Monat eingereicht werden soll (Volumen €)
+      planpositionen: planSeed(),
+      // Kennzahlen aus der Bereichsauswertung (Profiberater) — gleich beispiele/geschaeftsstand-muster.json
+      kennzahlen: [{ id: 1, bereich_id: 33, stand: '2026-10-02', monat: '2026-09', quelle: 'Datei', daten: MUSTER_KENNZAHLEN }],
     };
+  }
+  function planSeed() {
+    const P = (bereich_id, monat, kunde, sparte, betrag, status, notiz) => ({ bereich_id, monat, kunde, sparte, betrag, status, notiz: notiz || '' });
+    const rows = [
+      // ── Juli 2026 ──
+      P(3, '2026-07', 'Familie Berger', 'Altersvorsorge / AV-Depot', 25000, 'eingereicht'),
+      P(3, '2026-07', 'Empfehlung Weber', 'Sachversicherung', 8000, 'policiert'),
+      P(3, '2026-07', 'Familie Steiner', 'Baufinanzierung', 30000, 'geplant', 'Termin 24.07.'),
+      P(4, '2026-07', 'Familie Ott', 'Investment / Depot', 30000, 'verguetet'),
+      P(4, '2026-07', 'Marc Lehner', 'Altersvorsorge / AV-Depot', 15000, 'eingereicht'),
+      P(4, '2026-07', 'Sabine Lux', 'Berufsunfähigkeit / Arbeitskraft', 12000, 'geplant'),
+      P(5, '2026-07', 'Familie Brandt', 'Altersvorsorge / AV-Depot', 35000, 'eingereicht'),
+      P(5, '2026-07', 'Praxis Sonne', 'Krankenversicherung', 9000, 'geplant'),
+      P(8, '2026-07', 'Bau Süd GmbH', 'Sachversicherung', 18000, 'policiert'),
+      P(8, '2026-07', 'Familie Winter', 'Bausparen', 6000, 'entfallen', 'hat schon ETF'),
+      P(12, '2026-07', 'Familie Berger', 'Berufsunfähigkeit / Arbeitskraft', 4000, 'eingereicht'),
+      P(16, '2026-07', 'Marco Diehl', 'Bausparen', 7000, 'geplant'),
+      P(32, '2026-07', 'Familie Neumann', 'Baufinanzierung', 45000, 'eingereicht'),
+      P(32, '2026-07', 'Dr. Seifert', 'Immobilienvermittlung', 26600, 'geplant'),
+      P(33, '2026-07', 'Familie Hoff', 'Altersvorsorge / AV-Depot', 140000, 'verguetet'),
+      P(33, '2026-07', 'Praxis Dr. Lenz', 'Berufsunfähigkeit / Arbeitskraft', 99800, 'verguetet'),
+      // ── Juni 2026: noch offen → „aus Vormonat übernehmen“ ──
+      P(4, '2026-06', 'Tina Vogt', 'Krankenversicherung', 6000, 'geplant'),
+      P(5, '2026-06', 'Klein AG', 'Sachversicherung', 9000, 'geplant'),
+      // ── Oktober 2026: Profiberaterin, Abgleich mit dem Geschäftsstand ──
+      P(33, '2026-10', 'Familie Kern', 'Altersvorsorge / AV-Depot', 150000, 'eingereicht'),
+      P(33, '2026-10', 'Herr Sander', 'Investment / Depot', 60000, 'policiert'),
+      P(33, '2026-10', 'Praxis Dr. Lenz', 'Berufsunfähigkeit / Arbeitskraft', 90000, 'geplant', 'zweite Ärztin'),
+      P(33, '2026-10', 'Familie Roth', 'Sachversicherung', 20000, 'geplant'),
+    ];
+    return rows.map((r, i) => ({ id: i + 1, sortierung: (i + 1) * 10, ...r }));
   }
   // Monatsziele generieren: gleichmäßig aufs Jahr, je Rolle unterschiedlich hoch
   function zieleSeed() {
@@ -161,6 +342,7 @@ globalThis.DemoDB = (function () {
       20: 10000, 21: 8000, 22: 8000, 23: 8000,  // Team Lennart / Tom
       24: 8000, 25: 8000, 26: 8000, 27: 8000, 28: 8000, 29: 8000,
       30: 8000, 31: 6000,
+      33: 300000, // Clara B. (Profiberaterin, Volumen)
     };
     const out = []; let id = 1;
     for (const [bid, wert] of Object.entries(proMonat))
@@ -168,7 +350,7 @@ globalThis.DemoDB = (function () {
     return out;
   }
   const DEFAULTS = {
-    bereiche: { rolle: '', gruppe: 'SN', parent_id: null, position: null, karriereweg: null, quartalsziel: 0, sortierung: 0 },
+    bereiche: { rolle: '', gruppe: 'SN', parent_id: null, position: null, karriereweg: null, partnernummer: null, email: null, quartalsziel: 0, sortierung: 0 },
     sub_leiter: { sortierung: 0 },
     eintraege: { kunde: null, monat: null, status: 'offen', ablehnungsgrund: null, potenzial: 0, terminart: null, notiz: null, erfasst_am: null, sortierung: 0 },
     avdepot: { kunde: null, status: 'offen', notiz: null, erfasst_am: null, sortierung: 0 },
@@ -176,12 +358,15 @@ globalThis.DemoDB = (function () {
     ziele: { jahr: 2026, monat: 1, wert: 0 },
     volumen: { monat: null, kunde: null, gesellschaft: null, tarif: null, betrag: 0, jahre: 0, einmal: 0, satz: 0, sortierung: 0 },
     aktivitaeten: { monat: null, kontakte: 0, s1: 0, s2: 0, s3: 0, abschluss: 0 },
+    planpositionen: { monat: null, kunde: null, sparte: null, betrag: 0, status: 'geplant', notiz: null, sortierung: 0 },
+    kennzahlen: { stand: null, monat: null, quelle: null, daten: null },
   };
 
   function load() {
     if (store) return;
     const raw = globalThis.localStorage && localStorage.getItem(KEY);
     store = raw ? JSON.parse(raw) : seed();
+    for (const [t, rows] of Object.entries(seed())) if (!store[t]) store[t] = rows;   // neue Tabellen in alten Ständen ergänzen
     save();
   }
   function save() { if (globalThis.localStorage) localStorage.setItem(KEY, JSON.stringify(store)); }
@@ -210,7 +395,7 @@ globalThis.DemoDB = (function () {
     single() { this._single = true; return this; }
     then(res, rej) { try { res(this._exec()); } catch (e) { rej ? rej(e) : res({ data: null, error: { message: e.message } }); } }
     _exec() {
-      const rows = store[this.t];
+      const rows = store[this.t] || (store[this.t] = []);
       const match = r => this._f.every(([c, v]) => r[c] === v);
       if (this._op === 'select') {
         let out = rows.filter(match);
@@ -247,10 +432,11 @@ globalThis.DemoDB = (function () {
         async resetPasswordForEmail() { return noAuth; },
         async updateUser() { return noAuth; },
       },
+      async rpc() { return { data: null, error: null }; },   // Profil-Verknüpfung gibt es nur live
       channel() { const ch = { on() { return ch; }, subscribe() { return ch; } }; return ch; },
       removeChannel() { },
     };
   }
 
-  return { client, reset() { store = seed(); save(); } };
+  return { client, seed, reset() { store = seed(); save(); } };
 })();

@@ -1,0 +1,45 @@
+{
+  "format": "wolny-geschaeftsstand",
+  "version": 1,
+  "titel": "Bereichsauswertung Profiberater",
+  "monat": "2026-09",
+  "stand": "2026-10-02",
+  "bericht": { "titel": "Mein Geschäftsstand September 2026 (Muster, Fantasiedaten)", "url": null },
+  "partner": { "partnernummer": null },
+  "karriere": {
+    "stufeHeute": "Senior Sales Consultant",
+    "naechsteStufe": "Sales Manager",
+    "grenzeEigenvolumen": 2000000,
+    "fenstermonate": 6,
+    "zielMonat": "2026-12",
+    "eigenvolumenJeMonat": [
+      { "monat": "2026-04", "wert": 248200 },
+      { "monat": "2026-05", "wert": 262900 },
+      { "monat": "2026-06", "wert": 301300 },
+      { "monat": "2026-07", "wert": 239800 },
+      { "monat": "2026-08", "wert": 288600 },
+      { "monat": "2026-09", "wert": 271600 }
+    ]
+  },
+  "qualitaet": { "bqq": 2.1, "grenze": 10 },
+  "produktion": { "eingereichtLfdJahr": 2527500, "zumVorjahrProzent": 12.4, "pipelineAntraege": 14, "pipelineVolumen": 386400 },
+  "ampeln": [
+    { "feld": "Karriere", "ampel": "gelb", "wert": "81 %", "text": "Mit dem bisherigen Tempo bleibt die Stufe außer Reichweite." },
+    { "feld": "Qualität", "ampel": "gruen", "wert": "2,1 %", "text": "Eigene BQQ weit unter der Grenze." },
+    { "feld": "Produktion", "ampel": "gruen", "wert": "+12,4 %", "text": "14 Anträge mit 386.400 € in der Pipeline." },
+    { "feld": "Provision", "ampel": "rot", "wert": "1 Sperre", "text": "12.000 € blockiert, Rabattgenehmigung fehlt." },
+    { "feld": "Kunden", "ampel": "gelb", "wert": "9 von 23", "text": "Neukunden ohne Beruf oder Einkommen." }
+  ],
+  "provision": [
+    { "punkt": "ANB offen", "faelle": 2, "detail": "1 mit Frist vorbei", "ampel": "gelb" },
+    { "punkt": "VNB offen", "faelle": 3, "detail": "gefährdet 6.900 €", "ampel": "gelb" },
+    { "punkt": "Provisionssperren", "faelle": 1, "detail": "Rabattgenehmigung, 12.000 €", "ampel": "rot" },
+    { "punkt": "Anträge ohne Policierung über 30 Tage", "faelle": 4, "detail": "58.300 €", "ampel": "gelb" },
+    { "punkt": "Ohne Erstabrechnung", "faelle": 0, "detail": null, "ampel": "gruen" }
+  ],
+  "aufgaben": [
+    { "titel": "Provisionssperre lösen", "frist": "bis 09.10.", "text": "Rabattgenehmigung nachweisen, dann ist die Provision frei." },
+    { "titel": "Pipeline policieren", "frist": "bis 18.10.", "text": "Vier Anträge liegen über 30 Tage ohne Policierung; sie tragen den Weg zur Stufe." },
+    { "titel": "Monatsschnitt anheben", "frist": "ab Oktober", "text": "Für die nächste Stufe im Dezember braucht es 400.000 € je Monat statt heute rund 269.000 €." }
+  ]
+}

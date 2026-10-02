@@ -10,6 +10,8 @@ const STATUS = ['offen', 'kunde', 'abgelehnt'];
 const STATUS_LABEL = { offen: '○ Offen', kunde: '✓ Kunde', abgelehnt: '✕ Abgelehnt' };
 const STUFE_WK = { S1: 0.1, S2: 0.4, S3: 0.7, Service: 0.5, AEC: 0.3 };   // Wahrscheinlichkeit für gewichtete Pipeline
 const MONATE = ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember'];
+const PL = window.Planung, ORG = window.Organigramm;   // Rechenlogik (planung.js, organigramm.js)
+const BERICHTE_URL = window.BERICHTE_URL || null;      // Link zu den Berichten der Beratungssuite (config.js)
 const KOMPASS_URL = 'https://wolny-tools.vercel.app/tools/av-depot-kompass.html';   // internes Beratungs-Tool (Login „beratung")
 const TOOLS_URL = 'https://wolny-tools.vercel.app/';                                 // Beratungstools-Portal
 const COCKPIT_URL = null;   // Finanzierungscockpit — Verknüpfung folgt, sobald es eine Live-URL hat
@@ -93,7 +95,9 @@ $('#changePwBtn').addEventListener('click', async () => {
 
 async function loadViewer(session) {
   if (DEMO) { viewer = { role: 'admin', fkId: null }; return; }
-  const { data } = await sb.from('profiles').select('*').eq('user_id', session.user.id).single();
+  let { data } = await sb.from('profiles').select('*').eq('user_id', session.user.id).single();
+  // Noch kein Profil: über die E-Mail aus dem Organigramm verknüpfen (Funktion aus schema.sql)
+  if (!data) { const r = await sb.rpc('ub_profil_verknuepfen'); if (!r.error && r.data && r.data.length) data = r.data[0]; }
   viewer = data ? { role: data.role || 'fk', fkId: data.bereich_id || null } : { role: 'fk', fkId: null };
 }
 
@@ -112,13 +116,24 @@ async function enterApp(session) {
   }
   buildRoleSwitch();
   subscribe();
-  go(showControlling);
+  go(startView());
 }
 
 async function loadBereiche() {
   const { data, error } = await sb.from('bereiche').select('*').order('sortierung');
   if (error) return toast('Laden fehlgeschlagen: ' + error.message, true);
-  BEREICHE = data;
+  BEREICHE = baumOrdnung(data);
+}
+// Baumreihenfolge: jede Person direkt unter ihrer Führungskraft, Geschwister nach sortierung.
+// Die Tabellen rücken nach Tiefe ein und brauchen deshalb diese Reihenfolge (auch nach einem Import).
+function baumOrdnung(rows) {
+  const ids = new Set(rows.map(b => b.id)), kinder = new Map(), out = [], gesehen = new Set();
+  const nachSort = (a, b) => (a.sortierung || 0) - (b.sortierung || 0) || a.id - b.id;
+  for (const b of rows) { const p = ids.has(b.parent_id) ? b.parent_id : null; if (!kinder.has(p)) kinder.set(p, []); kinder.get(p).push(b); }
+  const lauf = p => { for (const b of (kinder.get(p) || []).sort(nachSort)) { if (gesehen.has(b.id)) continue; gesehen.add(b.id); out.push(b); lauf(b.id); } };
+  lauf(null);
+  for (const b of rows) if (!gesehen.has(b.id)) out.push(b);   // Reste eines Kreisbezugs hinten anhängen
+  return out;
 }
 async function loadZiele() {
   const { data } = await sb.from('ziele').select('*');
@@ -162,12 +177,16 @@ async function setZiel(bid, jahr, monat, wert) {
 /* ── Rollen / Hierarchie ───────────────────────────────────────────── */
 const isAdmin = () => viewer.role === 'admin';
 const childrenFks = id => BEREICHE.filter(b => b.parent_id === id);
-function subtreeIds(id) { const out = [id]; for (const c of childrenFks(id)) out.push(...subtreeIds(c.id)); return out; }
-function fkDepth(b) { let d = 0, p = b.parent_id; while (p != null) { const par = BEREICHE.find(x => x.id === p); if (!par) break; d++; p = par.parent_id; } return d; }
+function subtreeIds(id, seen = new Set()) { if (seen.has(id)) return []; seen.add(id); const out = [id]; for (const c of childrenFks(id)) out.push(...subtreeIds(c.id, seen)); return out; }
+function fkDepth(b) { let d = 0, p = b.parent_id; while (p != null && d < 50) { const par = BEREICHE.find(x => x.id === p); if (!par) break; d++; p = par.parent_id; } return d; }
 const visibleFks = () => isAdmin() ? BEREICHE : BEREICHE.filter(b => subtreeIds(viewer.fkId).includes(b.id));
 const scopedName = () => { const b = BEREICHE.find(x => x.id === viewer.fkId); return b ? b.name : '—'; };
 const baseDepth = () => isAdmin() ? 0 : fkDepth(BEREICHE.find(x => x.id === viewer.fkId) || { parent_id: null });
 const fkName = id => { const b = BEREICHE.find(x => x.id === id); return b ? b.name : '—'; };
+// Profiberater-Ansicht: der eigene Knoten ist ein Profiberater (Position oder Karriereweg „profi“)
+const eigenerKnoten = () => BEREICHE.find(x => x.id === viewer.fkId) || null;
+const profiModus = () => !isAdmin() && istProfi(eigenerKnoten());
+const startView = () => profiModus() ? showGeschaeftsstand : showControlling;
 
 function buildRoleSwitch() {
   const box = $('#roleSwitch');
@@ -176,11 +195,14 @@ function buildRoleSwitch() {
   box.appendChild(el('div', 'rs-lbl', 'ANSICHT ALS'));
   const sel = el('select');
   sel.appendChild(new Option('Admin · alle', 'admin'));
-  for (const b of BEREICHE) sel.appendChild(new Option('· '.repeat(fkDepth(b)) + b.name + (b.rolle ? ' (' + b.rolle + ')' : ''), 'fk:' + b.id));
+  const fkGrp = el('optgroup'); fkGrp.label = 'Führungskraft-Ansicht';
+  const proGrp = el('optgroup'); proGrp.label = 'Profiberater-Ansicht';
+  for (const b of BEREICHE) (istProfi(b) ? proGrp : fkGrp).appendChild(new Option((istProfi(b) ? '' : '· '.repeat(fkDepth(b))) + b.name + (b.rolle ? ' (' + b.rolle + ')' : ''), 'fk:' + b.id));
+  sel.appendChild(fkGrp); if (proGrp.children.length) sel.appendChild(proGrp);
   sel.value = isAdmin() ? 'admin' : 'fk:' + viewer.fkId;
   sel.onchange = () => {
     viewer = sel.value === 'admin' ? { role: 'admin', fkId: null } : { role: 'fk', fkId: Number(sel.value.split(':')[1]) };
-    go(showControlling);
+    go(startView());
   };
   box.appendChild(sel);
 }
@@ -192,7 +214,10 @@ function rerenderCurrent() { currentView(); }
 function renderNav() {
   const nav = $('#nav'); nav.innerHTML = '';
   const item = (label, thunk, active) => { const a = el('a', 'dash' + (active ? ' active' : ''), label); a.onclick = () => go(thunk); nav.appendChild(a); };
-  item('📊 Controlling', showControlling, curName === 'controlling');
+  const profi = profiModus();
+  if (profi) item('🏁 Mein Geschäftsstand', showGeschaeftsstand, curName === 'geschaeftsstand');
+  else item('📊 Controlling', showControlling, curName === 'controlling');
+  item('📅 Monatsplanung', showMonatsplanung, curName === 'monatsplanung');
   item('🎯 Ziele & Planung', showZiele, curName === 'ziele');
   item('📞 Aktivitäten-Funnel', showFunnel, curName === 'funnel');
   item('🧮 Volumenrechner', showVolumen, curName === 'volumen');
@@ -200,6 +225,8 @@ function renderNav() {
   item('🗓 Monatsauswertung', showMonat, curName === 'monat');
   item('🚀 AV-Kampagne', showKampagne, curName === 'kampagne');
   item('♻ Recycling', showRecycling, curName === 'recycling');
+  if (!profi) item('👥 Struktur & Import', showStruktur, curName === 'struktur');
+  $('#importBtn').hidden = profi;   // Excel-Import ersetzt Monatsdaten aller Blätter — nichts für die Einzelsicht
   const base = baseDepth();
   // Nav zeigt Führungskräfte (Knoten mit Team), Wurzel-Knoten (z.B. Inhaber) + den eigenen Knoten.
   const navNodes = visibleFks().filter(b => childrenFks(b.id).length > 0 || b.parent_id == null || b.id === viewer.fkId);
@@ -568,7 +595,7 @@ const WEG_ORDER = { basis: 0, fuehrung: 1, profi: 2 };
 const positionen = () => (window.POSITIONEN || []).slice()
   .sort((a, b) => (WEG_ORDER[a.weg] ?? 9) - (WEG_ORDER[b.weg] ?? 9) || a.stufe - b.stufe);
 // Profiberaterkarriere qualifiziert über Eigenvolumen — Teamvolumen ist dort ohne Bedeutung
-const istProfi = b => { const p = posOf(b); return !!p && p.weg === 'profi'; };
+const istProfi = b => { if (!b) return false; const p = posOf(b); return (!!p && p.weg === 'profi') || b.karriereweg === 'profi'; };
 const posOf = b => positionen().find(p => p.key === (b && b.position)) || null;
 const promilleOf = b => { const p = posOf(b); return p ? num(p.promille) : 0; };
 // nächste Stufe im selben Karriereweg (Basis läuft in Führung oder Profi weiter)
@@ -963,18 +990,609 @@ async function showKampagne() {
   if (!rows.length) v.appendChild(el('div', 'empty', 'Noch keine Kampagnen-Kandidaten. Jeder trägt sie auf seinem Board im Reiter „Privates Altersvorsorgedepot" ein.'));
 }
 
+/* ── Monatsplanung (je Person und Monat: was eingereicht werden soll) ─ */
+async function ladePlan(ids, monat) {
+  const { data } = await sb.from('planpositionen').select('*');
+  return (data || []).filter(r => ids.includes(r.bereich_id) && (!monat || r.monat === monat));
+}
+
+async function showMonatsplanung() {
+  curName = 'monatsplanung'; renderNav();
+  const v = $('#view'); v.innerHTML = '';
+  if (profiModus()) {
+    const b = eigenerKnoten();
+    v.appendChild(header('MONATSPLANUNG', 'Meine Monatsplanung', monthLabel(currentMonat) + ' · was ich einreichen will und wo ich gegen mein Ziel stehe', 'teal'));
+    return renderMonatsplanung(v, b);
+  }
+  const ids = visibleFks().map(b => b.id);
+  const rows = await ladePlan(ids, currentMonat);
+  const jahr = jahrVon(currentMonat), mon = monVon(currentMonat);
+  v.appendChild(header('MONATSPLANUNG', 'Monatsplanung ' + monthLabel(currentMonat),
+    (isAdmin() ? 'Gesamte Organisation' : scopedName()) + ' · geplant, eingereicht und Abstand zum Monatsziel je Person. Zahlen rollen den Unterbau hoch.', 'teal'));
+  v.appendChild(monthNav());
+
+  const wurzeln = visibleFks().filter(b => !ids.includes(b.parent_id));
+  const ges = PL.summe(rows);
+  const soll = wurzeln.reduce((a, b) => a + zielSubtree(b.id, jahr, mon), 0);
+  const g = PL.gegenZiel(soll, ges);
+  const kp = el('div', 'kpis');
+  kp.append(kpi('Monatsziel', soll ? eur(soll) : '—'), kpi('Geplant', eur(ges.plan)), kpi('Eingereicht', eur(ges.eingereicht)),
+    kpi('Fehlt bis Ziel', soll ? eur(g.fehltEingereicht) : '—'), kpi('Zielerreichung', ampel(ges.eingereicht, soll).txt),
+    kpi('Plan deckt Ziel', g.planDeckt == null ? '—' : Math.round(g.planDeckt * 100) + ' %'));
+  v.appendChild(kp);
+
+  const bar = el('div', 'toolbar');
+  const lbl = el('label', 'pillinfo'); lbl.style.cssText = 'display:flex;align-items:center;gap:8px;cursor:pointer';
+  const cb = el('input'); cb.type = 'checkbox'; cb.checked = showAllNodes;
+  cb.onchange = () => { showAllNodes = cb.checked; rerenderCurrent(); };
+  lbl.append(cb, el('span', null, 'Alle Mitarbeiter zeigen · „Eingereicht“ zählt ab Antrag (eingereicht, policiert, vergütet)'));
+  bar.appendChild(lbl); v.appendChild(bar);
+
+  const wrap = el('div', 'tblscroll');
+  const t = el('table', 'dash-tbl');
+  t.innerHTML = '<thead><tr><th>Mitarbeiter</th><th>Rolle</th><th class="num">Monatsziel</th><th class="num">Geplant</th>' +
+    '<th class="num">Eingereicht</th><th class="num">Policiert</th><th class="num">Fehlt</th><th>Ampel</th><th>Plan deckt</th></tr></thead>';
+  const tb = el('tbody'); const base = baseDepth();
+  for (const b of visibleFks().filter(b => showAllNodes || childrenFks(b.id).length > 0 || b.parent_id == null || b.id === viewer.fkId)) {
+    const sub = subtreeIds(b.id).filter(x => ids.includes(x));
+    const s = PL.summe(rows.filter(r => sub.includes(r.bereich_id)));
+    const z = zielSubtree(b.id, jahr, mon), gz = PL.gegenZiel(z, s);
+    const tr = el('tr'); if (!s.anzahl && !z) tr.classList.add('row-dim');
+    const depth = Math.max(0, fkDepth(b) - base);
+    const nt = el('td'); nt.style.paddingLeft = (12 + depth * 18) + 'px';
+    if (depth) nt.appendChild(el('span', 'tree', '└ '));
+    nt.appendChild(el('span', 'dot ' + b.gruppe));
+    const ln = el('a', 'name', ' ' + b.name); ln.onclick = () => { boardTab = 'monatsplanung'; go(() => showFk(b.id)); }; nt.appendChild(ln);
+    tr.appendChild(nt);
+    tr.appendChild(el('td', 'rolle', b.rolle || '—'));
+    tr.appendChild(el('td', 'num', z ? eur(z) : '—'));
+    tr.appendChild(el('td', 'num', eur(s.plan)));
+    tr.appendChild(el('td', 'num', eur(s.eingereicht)));
+    tr.appendChild(el('td', 'num', eur(s.policiert)));
+    tr.appendChild(el('td', 'num', z ? eur(gz.fehltEingereicht) : '—'));
+    const at = el('td'); at.appendChild(ampelBadge(s.eingereicht, z)); tr.appendChild(at);
+    const pt = el('td'); pt.appendChild(ampelBadge(s.plan, z)); tr.appendChild(pt);
+    tb.appendChild(tr);
+  }
+  t.appendChild(tb); wrap.appendChild(t); v.appendChild(wrap);
+
+  if (!rows.length) return v.appendChild(el('div', 'empty', 'Noch keine Planung für ' + monthLabel(currentMonat) + '. Jede Person trägt ihre Positionen im eigenen Board unter „📅 Monatsplanung“ ein.'));
+  v.appendChild(spartenMix(ges));
+}
+
+// Verteilung der geplanten Summe nach Sparte (ohne entfallene Positionen)
+function spartenMix(s) {
+  const box = el('div');
+  box.appendChild(el('div', 'section-lbl', 'Nach Sparte · ' + eur(s.plan) + ' geplant'));
+  const t = el('table', 'dash-tbl sparten-tbl');
+  t.innerHTML = '<thead><tr><th>Sparte</th><th class="num">Volumen</th><th>Anteil</th></tr></thead>';
+  const tb = el('tbody');
+  for (const [sp, w] of Object.entries(s.jeSparte).sort((a, b) => b[1] - a[1])) {
+    const tr = el('tr'); const pct = s.plan ? Math.round(w / s.plan * 100) : 0;
+    tr.appendChild(el('td', null, sp)); tr.appendChild(el('td', 'num', eur(w)));
+    const bt = el('td'); const bar = el('div', 'bar'); const sp2 = el('span'); sp2.style.width = pct + '%'; bar.appendChild(sp2);
+    const wrap = el('div', 'sparte-anteil'); wrap.append(bar, el('span', null, pct + ' %')); bt.appendChild(wrap); tr.appendChild(bt);
+    tb.appendChild(tr);
+  }
+  t.appendChild(tb); box.appendChild(t);
+  return box;
+}
+
+async function renderMonatsplanung(v, b) {
+  v.appendChild(monthNav());
+  const jahr = jahrVon(currentMonat), mon = monVon(currentMonat), vorher = monthShift(currentMonat, -1);
+  const alle = await ladePlan([b.id]);
+  const list = alle.filter(r => r.monat === currentMonat).sort((a, c) => (a.sortierung || 0) - (c.sortierung || 0));
+  const offenVorher = alle.filter(r => r.monat === vorher && (r.status || 'geplant') === 'geplant');
+  const ziel = zielEigen(b.id, jahr, mon);
+  const s = PL.summe(list), g = PL.gegenZiel(ziel, s);
+
+  const box = el('div', 'av-intro');
+  box.appendChild(el('p', 'av-lead', 'Was in ' + monthLabel(currentMonat) + ' eingereicht werden soll: je Kunde mit Sparte und Volumen. ' +
+    'Der Stand wandert von „Geplant“ bis „Vergütet“; ab „Eingereicht“ zählt die Position auf das Monatsziel.'));
+  const zl = el('label', 'mp-ziel'); zl.appendChild(el('span', null, 'Monatsziel €'));
+  const zi = el('input'); zi.type = 'number'; zi.step = 1000; zi.min = 0; zi.value = ziel || ''; zi.placeholder = '0';
+  zi.onchange = async () => { await setZiel(b.id, jahr, mon, Number(zi.value) || 0); rerenderCurrent(); };
+  zl.appendChild(zi); box.appendChild(zl);
+  if (offenVorher.length) {
+    const btn = el('button', 'btn sub', '↪ ' + offenVorher.length + ' offene aus ' + monthLabel(vorher) + ' übernehmen');
+    btn.title = 'Positionen, die im Vormonat noch auf „Geplant“ stehen, in diesen Monat verschieben';
+    btn.onclick = async () => { for (const r of offenVorher) await saveTbl('planpositionen', r.id, 'monat', currentMonat); toast(offenVorher.length + ' Positionen übernommen'); rerenderCurrent(); };
+    box.appendChild(btn);
+  }
+  v.appendChild(box);
+  if (istProfi(b)) { const h = await tempoHinweis(b, s); if (h) v.appendChild(h); }
+
+  const t = el('table', 'tbl plan-tbl');
+  t.innerHTML = '<thead><tr><th>Kunde</th><th>Sparte</th><th class="num">Volumen €</th><th>Stand</th><th>Notiz</th><th class="col-del"></th></tr></thead>';
+  const tb = el('tbody');
+  for (const r of list) tb.appendChild(planRowEl(r));
+  planAddLine(tb, b.id);
+  t.appendChild(tb); v.appendChild(t);
+
+  const ges = el('div', 'gesamt');
+  ges.appendChild(el('span', 'lbl', 'MONATSPLANUNG ' + monthLabel(currentMonat).toUpperCase()));
+  const right = el('div', 'gesamt-right');
+  const valRow = el('div', 'gesamt-valrow');
+  valRow.appendChild(el('span', 'val', eur(s.plan)));
+  if (ziel) valRow.appendChild(ampelBadge(s.eingereicht, ziel));
+  right.appendChild(valRow);
+  right.appendChild(el('span', 'sub-val', 'davon eingereicht: ' + eur(s.eingereicht) +
+    (ziel ? '  ·  Ziel: ' + eur(ziel) + '  ·  fehlt: ' + eur(g.fehltEingereicht) : '  ·  kein Monatsziel hinterlegt') +
+    (ziel && g.fehltImPlan ? '  ·  Plan liegt ' + eur(g.fehltImPlan) + ' unter dem Ziel' : '')));
+  ges.appendChild(right); v.appendChild(ges);
+  if (s.anzahl) v.appendChild(spartenMix(s));
+}
+
+function planRowEl(r) {
+  const st = PL.PLAN_STATUS.includes(r.status) ? r.status : 'geplant';
+  const tr = el('tr');
+  if (st === 'policiert' || st === 'verguetet') tr.classList.add('is-kunde');
+  if (st === 'entfallen') tr.classList.add('row-dim');
+  const c1 = el('td'); const i1 = el('input'); i1.value = r.kunde ?? ''; i1.placeholder = 'Kunde…';
+  i1.onchange = () => saveTbl('planpositionen', r.id, 'kunde', i1.value); c1.appendChild(i1); tr.appendChild(c1);
+  const c2 = el('td'); const sp = el('select', 'plan-sparte'); sp.appendChild(new Option('— Sparte —', ''));
+  for (const x of PL.SPARTEN) { const o = new Option(x, x); if (r.sparte === x) o.selected = true; sp.appendChild(o); }
+  sp.onchange = async () => { await saveTbl('planpositionen', r.id, 'sparte', sp.value || null); rerenderCurrent(); };
+  c2.appendChild(sp); tr.appendChild(c2);
+  const c3 = el('td', 'num'); const i3 = el('input'); i3.type = 'number'; i3.step = 1000; i3.min = 0; i3.value = r.betrag || ''; i3.placeholder = '0';
+  i3.onchange = async () => { await saveTbl('planpositionen', r.id, 'betrag', Number(i3.value) || 0); rerenderCurrent(); };
+  c3.appendChild(i3); tr.appendChild(c3);
+  const c4 = el('td'); const s = el('select', 'statussel pl-' + st);
+  for (const x of PL.PLAN_STATUS) { const o = el('option', null, PL.PLAN_LABEL[x]); o.value = x; if (st === x) o.selected = true; s.appendChild(o); }
+  s.onchange = async () => { await saveTbl('planpositionen', r.id, 'status', s.value); rerenderCurrent(); };
+  c4.appendChild(s); tr.appendChild(c4);
+  const c5 = el('td'); const i5 = el('input'); i5.value = r.notiz ?? ''; i5.onchange = () => saveTbl('planpositionen', r.id, 'notiz', i5.value); c5.appendChild(i5); tr.appendChild(c5);
+  const del = el('td', 'col-del'); const bt = el('button', 'del-btn', '✕');
+  bt.onclick = async () => { await sb.from('planpositionen').delete().eq('id', r.id); rerenderCurrent(); };
+  del.appendChild(bt); tr.appendChild(del);
+  return tr;
+}
+function planAddLine(tb, bereichId) {
+  const tr = el('tr'); const td = el('td'); td.colSpan = 6; td.style.padding = '4px';
+  const btn = el('button', 'add-line', '+ Position'); btn.onclick = async () => {
+    const { data, error } = await sb.from('planpositionen').insert({ bereich_id: bereichId, monat: currentMonat, status: 'geplant', betrag: 0, sortierung: Date.now() % 1e9 }).select().single();
+    if (error) return toast(error.message, true);
+    tb.insertBefore(planRowEl(data), tr); const f = tr.previousSibling.querySelector('input'); if (f) f.focus();
+  };
+  td.appendChild(btn); tr.appendChild(td); tb.appendChild(tr);
+}
+
+/* ── Geschäftsstand für Profiberater (verbunden mit der Bereichsauswertung) ── */
+let gsZielMonat = null;   // gewählter Zielmonat für „nötig je Monat“
+async function ladeKennzahlen(bid) {
+  const { data } = await sb.from('kennzahlen').select('*').eq('bereich_id', bid);
+  return (data || []).slice().sort((a, b) => (a.stand || '') < (b.stand || '') ? 1 : (a.stand || '') > (b.stand || '') ? -1 : b.id - a.id)[0] || null;
+}
+function kennzahlenAus(row) { try { return row ? PL.pruefeGeschaeftsstand(row.daten) : null; } catch (e) { return null; } }
+async function speichereKennzahlen(bid, kz, quelle) {
+  const row = { bereich_id: bid, stand: kz.stand || heute(), monat: kz.monat, quelle, daten: kz };
+  const { data } = await sb.from('kennzahlen').select('*').eq('bereich_id', bid);
+  const gleich = (data || []).find(r => r.stand === row.stand);
+  const { error } = gleich ? await sb.from('kennzahlen').update(row).eq('id', gleich.id) : await sb.from('kennzahlen').insert(row);
+  if (error) { toast('Speichern fehlgeschlagen: ' + error.message, true); return false; }
+  return true;
+}
+
+async function showGeschaeftsstand() {
+  curName = 'geschaeftsstand'; renderNav();
+  const b = eigenerKnoten();
+  const v = $('#view'); v.innerHTML = '';
+  v.appendChild(header('PROFIBERATER', 'Mein Geschäftsstand',
+    (b ? b.name + (b.rolle ? ' · ' + b.rolle : '') + ' · ' : '') + 'Weg zur nächsten Stufe, Monatsplanung und Bericht in einem Blick', 'teal'));
+  if (!b) return v.appendChild(el('div', 'empty', 'Diesem Zugang ist noch kein Bereich zugeordnet.'));
+  return renderGeschaeftsstand(v, b);
+}
+
+async function renderGeschaeftsstand(v, b) {
+  const row = await ladeKennzahlen(b.id);
+  const kz = kennzahlenAus(row);
+
+  // Verbindung zum Bericht: Datei laden, Bericht öffnen, von Hand pflegen
+  const box = el('div', 'av-intro');
+  box.appendChild(el('p', 'av-lead', kz
+    ? 'Verbunden mit: ' + ((kz.bericht && kz.bericht.titel) || kz.titel || 'Bereichsauswertung') + ' · Monat ' + monthLabel(kz.monat) +
+      (kz.stand ? ' · Stand ' + fmtDate(kz.stand) : '') + (row.quelle === 'von Hand' ? ' · von Hand gepflegt' : '') + '. Nur zur Information, maßgeblich sind Abrechnung und VPV.'
+    : 'Noch kein Bericht verbunden. Lade die Kennzahlen-Datei der Bereichsauswertung (Skill „prozess-profiberater-bereichsauswertung“) oder trag die abgerechneten Monatswerte von Hand ein.'));
+  const url = (kz && kz.bericht && kz.bericht.url) || BERICHTE_URL;
+  if (url) { const a = el('a', 'btn av-kompass', '📄 Bericht öffnen'); a.href = url; a.target = '_blank'; a.rel = 'noopener'; box.appendChild(a); }
+  const fi = el('input'); fi.type = 'file'; fi.accept = '.json,application/json'; fi.hidden = true;
+  fi.onchange = async () => {
+    const f = fi.files[0]; fi.value = ''; if (!f) return;
+    let neu;
+    try { neu = PL.pruefeGeschaeftsstand(JSON.parse(await f.text())); }
+    catch (e) { return toast(e instanceof SyntaxError ? 'Die Datei ist kein gültiges JSON.' : e.message, true); }
+    const nr = neu.partner.partnernummer;
+    if (nr && b.partnernummer && nr !== b.partnernummer && !confirm('Die Datei gehört zu Partnernummer ' + nr + ', dieser Bereich hat ' + b.partnernummer + '. Trotzdem übernehmen?')) return;
+    if (await speichereKennzahlen(b.id, neu, 'Datei')) { gsZielMonat = null; toast('Kennzahlen übernommen'); rerenderCurrent(); }
+  };
+  const lade = el('button', 'btn', '⇪ Kennzahlen-Datei laden'); lade.onclick = () => fi.click();
+  box.append(lade, fi);
+  if (!kz) {
+    const hand = el('button', 'btn sub', '✎ Von Hand eintragen');
+    hand.onclick = async () => {
+      // sechs leere Abrechnungsmonate bis zum Vormonat, nächste Stufe aus dem Positionskatalog
+      const bis = monthShift(heute().slice(0, 7), -1), nx = naechstePos(b), p = posOf(b);
+      const reihe = []; for (let i = 5; i >= 0; i--) reihe.push({ monat: monthShift(bis, -i), wert: 0 });
+      const leer = PL.pruefeGeschaeftsstand({ format: 'wolny-geschaeftsstand', version: 1, titel: 'Von Hand gepflegt', monat: bis, stand: heute(),
+        karriere: { stufeHeute: p ? p.name : b.rolle, naechsteStufe: nx ? nx.name : null, grenzeEigenvolumen: nx && num(nx.eigen) ? num(nx.eigen) : null, fenstermonate: 6, eigenvolumenJeMonat: reihe } });
+      if (await speichereKennzahlen(b.id, leer, 'von Hand')) rerenderCurrent();
+    };
+    box.appendChild(hand);
+  }
+  v.appendChild(box);
+  if (!kz) return;
+
+  // Ampeln aus dem Bericht
+  if (kz.ampeln.length) {
+    const grid = el('div', 'gs-ampeln');
+    for (const a of kz.ampeln) {
+      const c = el('div', 'gs-ampel gs-' + (a.ampel || 'none'));
+      const h = el('div', 'gs-feld'); h.append(el('span', 'gs-punkt'), el('span', null, a.feld)); c.appendChild(h);
+      if (a.wert) c.appendChild(el('div', 'gs-wert', a.wert));
+      if (a.text) c.appendChild(el('div', 'gs-text', a.text));
+      grid.appendChild(c);
+    }
+    v.appendChild(grid);
+  }
+
+  // Weg zur nächsten Stufe
+  const weg = PL.befoerderungsweg(kz);
+  if (weg) {
+    const k = kz.karriere;
+    v.appendChild(el('div', 'section-lbl', 'Weg zur nächsten Stufe · abgerechnetes Netto-Eigenvolumen, ' + weg.fenster + ' Monate rollierend'));
+    const card = el('div', 'gs-card');
+    const kopf = el('div', 'gs-wegkopf');
+    kopf.append(el('span', null, k.stufeHeute || 'Stufe heute'), el('span', null, (k.naechsteStufe || 'nächste Stufe') + (weg.grenze ? ' · ' + eur(weg.grenze) : '')));
+    card.appendChild(kopf);
+    const seg = el('div', 'gs-seg');
+    const skala = Math.max(weg.grenze || 0, weg.rollierend) || 1;
+    weg.reihe.forEach((e, i) => {
+      const sgm = el('div', 'gs-s' + (i === 0 && weg.faelltHeraus ? ' gs-raus' : ''), e.monat.slice(5));
+      sgm.style.width = (num(e.wert) / skala * 100) + '%'; sgm.title = monthLabel(e.monat) + ': ' + eur(e.wert);
+      seg.appendChild(sgm);
+    });
+    card.appendChild(seg);
+    card.appendChild(el('div', 'gs-segfuss', 'rollierend ' + eur(weg.rollierend) + (weg.quote != null ? ' (' + Math.round(weg.quote * 100) + ' %)' : '') +
+      (weg.faelltHeraus ? ' · hell: fällt mit dem nächsten Stand heraus' : '')));
+
+    // Zielmonat für „nötig je Monat“ (1 bis 6 Monate nach dem letzten Abrechnungsmonat)
+    const zielStd = k.zielMonat && PL.monateZwischen(weg.letzterMonat, k.zielMonat) >= 1 ? k.zielMonat : monthShift(weg.letzterMonat, 3);
+    const zielM = gsZielMonat && PL.monateZwischen(weg.letzterMonat, gsZielMonat) >= 1 ? gsZielMonat : zielStd;
+    const noetig = weg.noetigJeMonatBis(zielM);
+    const zsel = el('select', 'gs-zielsel');
+    for (let i = 1; i <= 6; i++) { const m = monthShift(weg.letzterMonat, i); const o = new Option(MON_KURZ[monVon(m) - 1] + ' ' + jahrVon(m), m); if (m === zielM) o.selected = true; zsel.appendChild(o); }
+    zsel.onchange = () => { gsZielMonat = zsel.value; rerenderCurrent(); };
+
+    const fakten = el('div', 'gs-fakten');
+    const fakt = (l, w) => { const r = el('div', 'gs-fakt'); r.append(el('span', null, l), typeof w === 'string' ? el('b', null, w) : w); fakten.appendChild(r); };
+    fakt('Stufe heute', k.stufeHeute || '—');
+    fakt('Nächste Stufe', k.naechsteStufe || '—');
+    if (weg.grenze) fakt('Es fehlen', eur(weg.fehlt));
+    if (weg.faelltHeraus) fakt('Fällt als Nächstes heraus', monthLabel(weg.faelltHeraus.monat) + ': ' + eur(weg.faelltHeraus.wert));
+    if (weg.grenze) fakt('Nötig im nächsten Abrechnungsmonat', eur(weg.noetigNaechsterMonat));
+    fakt('Monatsschnitt heute', eur(weg.schnitt));
+    if (noetig != null) { const w = el('span', 'gs-zielwahl'); w.append(el('b', null, eur(noetig)), el('span', null, ' bis '), zsel); fakt('Nötig je Monat für die Stufe', w); }
+    if (kz.qualitaet.bqq != null) fakt('BQQ eigen' + (kz.qualitaet.grenze != null ? ', Grenze ' + String(kz.qualitaet.grenze).replace('.', ',') + ' %' : ''), String(kz.qualitaet.bqq).replace('.', ',') + ' %');
+    card.appendChild(fakten);
+
+    // Ausblick: wie bisher, etwas schneller, nötiges Tempo
+    if (weg.grenze) {
+      const varianten = [['wie bisher', weg.schnitt], ['+20 %', weg.schnitt * 1.2]];
+      if (noetig != null) varianten.push(['für Stufe ' + MON_KURZ[monVon(zielM) - 1], noetig]);
+      const at = el('table', 'dash-tbl gs-ausblick');
+      const monate = weg.ausblick(0).zeilen.map(z => z.monat);
+      at.innerHTML = '<thead><tr><th>Tempo</th><th class="num">je Monat</th>' + monate.map(m => '<th class="num">' + MON_KURZ[monVon(m) - 1] + '</th>').join('') + '<th>Stufe erreicht</th></tr></thead>';
+      const tbA = el('tbody');
+      for (const [name, tempo] of varianten) {
+        const a = weg.ausblick(tempo);
+        const tr = el('tr'); tr.appendChild(el('td', null, name)); tr.appendChild(el('td', 'num', eur(tempo)));
+        for (const z of a.zeilen) tr.appendChild(el('td', 'num', mio(z.rollierend)));
+        const et = el('td'); et.appendChild(el('span', 'amp ' + (a.erreichtIm ? 'amp-gruen' : 'amp-gelb'), a.erreichtIm ? MON_KURZ[monVon(a.erreichtIm) - 1] + ' ' + jahrVon(a.erreichtIm) : 'nicht in 3 Monaten'));
+        tr.appendChild(et); tbA.appendChild(tr);
+      }
+      at.appendChild(tbA);
+      const sc = el('div', 'tblscroll'); sc.appendChild(at); card.appendChild(sc);
+    }
+    v.appendChild(card);
+
+    // Abgleich mit der Monatsplanung des laufenden Monats nach dem Bericht
+    const planMonat = monthShift(weg.letzterMonat, 1);
+    const ps = PL.summe(await ladePlan([b.id], planMonat));
+    const ab = PL.abgleich(weg, ps, zielM);
+    if (ab) {
+      const pb = el('div', 'av-intro gs-abgleich');
+      pb.appendChild(el('p', 'av-lead', 'Monatsplanung ' + monthLabel(planMonat) + ': ' + eur(ps.plan) + ' geplant, davon ' + eur(ps.eingereicht) + ' eingereicht. ' +
+        'Für ' + (k.naechsteStufe || 'die nächste Stufe') + ' im ' + monthLabel(zielM) + ' braucht es je Monat ' + eur(ab.noetig) + ' abgerechnetes Volumen. ' +
+        'Eingereichtes zählt erst nach Policierung und Abrechnung.'));
+      pb.appendChild(el('span', 'amp ' + (ab.fehltImPlan ? 'amp-orange' : 'amp-gruen'), ab.fehltImPlan ? 'Es fehlen ' + eur(ab.fehltImPlan) + ' in der Planung' : 'Planung trägt das Tempo'));
+      const open = el('button', 'btn', '📅 Monatsplanung ' + MONATE[monVon(planMonat) - 1] + ' öffnen');
+      open.onclick = () => { currentMonat = planMonat; if (profiModus() && b.id === viewer.fkId) go(showMonatsplanung); else { boardTab = 'monatsplanung'; go(() => showFk(b.id)); } };
+      pb.appendChild(open);
+      v.appendChild(pb);
+    }
+  }
+
+  // Produktion, hängende Provision, Aufgaben (soweit im Bericht enthalten)
+  const p = kz.produktion;
+  if (p.eingereichtLfdJahr != null || p.pipelineVolumen != null) {
+    const kp = el('div', 'kpis');
+    if (p.eingereichtLfdJahr != null) kp.appendChild(kpi('Eingereicht lfd. Jahr', eur(p.eingereichtLfdJahr)));
+    if (p.zumVorjahrProzent != null) kp.appendChild(kpi('Zum Vorjahr', (p.zumVorjahrProzent > 0 ? '+' : '') + String(p.zumVorjahrProzent).replace('.', ',') + ' %'));
+    if (p.pipelineVolumen != null) kp.appendChild(kpi('Pipeline (Antrag)', (p.pipelineAntraege != null ? p.pipelineAntraege + ' · ' : '') + eur(p.pipelineVolumen)));
+    v.appendChild(el('div', 'section-lbl', 'Produktion'));
+    v.appendChild(kp);
+  }
+  if (kz.provision.length) {
+    v.appendChild(el('div', 'section-lbl', 'Hängende Provision'));
+    const t = el('table', 'dash-tbl');
+    t.innerHTML = '<thead><tr><th>Punkt</th><th class="num">Fälle</th><th>Detail</th><th>Stand</th></tr></thead>';
+    const tb = el('tbody');
+    for (const r of kz.provision) {
+      const tr = el('tr'); tr.appendChild(el('td', null, r.punkt)); tr.appendChild(el('td', 'num', r.faelle == null ? '—' : String(r.faelle)));
+      tr.appendChild(el('td', null, r.detail || '—'));
+      const at = el('td'); at.appendChild(el('span', 'amp ' + ({ gruen: 'amp-gruen', gelb: 'amp-gelb', rot: 'amp-rot' }[r.ampel] || 'amp-none'), { gruen: 'grün', gelb: 'gelb', rot: 'rot' }[r.ampel] || '—'));
+      tr.appendChild(at); tb.appendChild(tr);
+    }
+    t.appendChild(tb); v.appendChild(t);
+  }
+  if (kz.aufgaben.length) {
+    v.appendChild(el('div', 'section-lbl', 'Die wichtigsten Aufgaben aus dem Bericht'));
+    const ol = el('ol', 'gs-aufgaben');
+    for (const a of kz.aufgaben) {
+      const li = el('li'); const h = el('div', 'gs-afkopf'); h.appendChild(el('b', null, a.titel)); if (a.frist) h.appendChild(el('span', 'gs-frist', a.frist));
+      li.appendChild(h); if (a.text) li.appendChild(el('div', 'gs-text', a.text)); ol.appendChild(li);
+    }
+    v.appendChild(ol);
+  }
+
+  // Monatswerte nachpflegen (z. B. ohne Datei oder nach dem nächsten Stand zum 18.)
+  v.appendChild(el('div', 'section-lbl', 'Abgerechnetes Eigenvolumen je Monat · von Hand änderbar'));
+  const et = el('table', 'tbl gs-werte');
+  et.innerHTML = '<thead><tr>' + kz.karriere.eigenvolumenJeMonat.map(e => '<th class="num">' + MON_KURZ[monVon(e.monat) - 1] + ' ' + String(jahrVon(e.monat)).slice(2) + '</th>').join('') + '<th class="num">Grenze nächste Stufe</th></tr></thead>';
+  const er = el('tr');
+  const sichern = async () => { if (await speichereKennzahlen(b.id, PL.pruefeGeschaeftsstand(kz), row.quelle === 'Datei' ? 'Datei, angepasst' : (row.quelle || 'von Hand'))) rerenderCurrent(); };
+  for (const e of kz.karriere.eigenvolumenJeMonat) {
+    const td = el('td', 'num'); const i = el('input'); i.type = 'number'; i.step = 1000; i.min = 0; i.value = e.wert || '';
+    i.onchange = () => { e.wert = Number(i.value) || 0; sichern(); };
+    td.appendChild(i); er.appendChild(td);
+  }
+  const gt = el('td', 'num'); const gi = el('input'); gi.type = 'number'; gi.step = 10000; gi.min = 0; gi.value = kz.karriere.grenzeEigenvolumen || '';
+  gi.onchange = () => { kz.karriere.grenzeEigenvolumen = Number(gi.value) || null; sichern(); };
+  gt.appendChild(gi); er.appendChild(gt);
+  const tbW = el('tbody'); tbW.appendChild(er); et.appendChild(tbW);
+  const sc = el('div', 'tblscroll'); sc.appendChild(et); v.appendChild(sc);
+  const nach = el('button', 'add-line', '+ nächsten Monat anhängen');
+  nach.onclick = () => { const l = kz.karriere.eigenvolumenJeMonat; l.push({ monat: monthShift(l[l.length - 1].monat, 1), wert: 0 }); kz.monat = l[l.length - 1].monat; kz.stand = heute(); sichern(); };
+  v.appendChild(nach);
+}
+const mio = n => (n >= 1e6 ? (n / 1e6).toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' Mio. €' : eur(n));
+
+// Hinweis in der Monatsplanung eines Profiberaters: nötiges Tempo aus dem Geschäftsstand
+async function tempoHinweis(b, s) {
+  const kz = kennzahlenAus(await ladeKennzahlen(b.id));
+  const weg = kz && PL.befoerderungsweg(kz);
+  if (!weg || !weg.grenze) return null;
+  const k = kz.karriere;
+  const zielM = k.zielMonat && PL.monateZwischen(weg.letzterMonat, k.zielMonat) >= 1 ? k.zielMonat : monthShift(weg.letzterMonat, 3);
+  const ab = PL.abgleich(weg, s, zielM);
+  if (!ab) return null;
+  const d = el('div', 'pillinfo ' + (ab.fehltImPlan ? 'warn' : ''),
+    '🏁 Für ' + (k.naechsteStufe || 'die nächste Stufe') + ' im ' + monthLabel(zielM) + ' braucht es je Monat ' + eur(ab.noetig) + ' abgerechnet' +
+    (ab.fehltImPlan ? ' · diese Planung liegt ' + eur(ab.fehltImPlan) + ' darunter' : ' · diese Planung trägt das Tempo'));
+  return d;
+}
+
+/* ── Struktur & Organigramm-Import (Führungskräfte, Admin) ─────────── */
+let orgText = '', orgEntwurf = null, orgAnker, orgAktualisieren = false, orgInaktive = false;
+async function showStruktur() {
+  curName = 'struktur'; renderNav();
+  const v = $('#view'); v.innerHTML = '';
+  v.appendChild(header('STRUKTUR', 'Struktur & Organigramm-Import',
+    (isAdmin() ? 'Gesamte Organisation' : scopedName()) + ' · Partner einzeln pflegen oder die ganze Struktur aus dem CRM-Organigramm übernehmen', 'gold'));
+  if (orgAnker === undefined || (orgAnker !== null && !visibleFks().some(b => b.id === orgAnker)) || (orgAnker === null && !isAdmin()))
+    orgAnker = isAdmin() ? null : viewer.fkId;
+
+  const box = el('div', 'av-intro org-box');
+  box.appendChild(el('p', 'av-lead', 'Organigramm aus dem CRM als Excel- oder CSV-Datei laden, oder die Tabelle bzw. den Baum im CRM markieren, kopieren und hier einfügen. ' +
+    'Erkannt werden Spalten wie Name (oder Vorname und Nachname), Partnernummer, Position, Führungskraft (Name oder Partnernummer), Ebene und E-Mail. ' +
+    'Ohne Spalten geht auch ein eingerückter Baum: eine Person je Zeile, Einrückung = Ebene.'));
+  box.appendChild(el('div', 'pillinfo warn', 'Das Exportformat des CRM-Organigramms ist noch nicht an einer echten Datei geprüft. Vor dem Übernehmen die Vorschau kontrollieren.'));
+  const ta = el('textarea', 'org-text'); ta.rows = 7; ta.value = orgText;
+  ta.placeholder = 'Partnernummer;Name;Position;FK-Partnernummer;E-Mail\n900001;Anna Beispiel;Repräsentanzleiter;;\n900002;Ben Muster;Seniorberater;900001;\n\noder\n\nAnna Beispiel (Repräsentanzleiter)\n  Ben Muster (Seniorberater)\n    Carla Probe (Juniorberater)';
+  ta.oninput = () => { orgText = ta.value; };
+  box.appendChild(ta);
+
+  const opts = el('div', 'org-opts');
+  const al = el('label'); al.appendChild(el('span', null, 'Oberste Zeile hängt unter'));
+  const asel = el('select');
+  if (isAdmin()) asel.appendChild(new Option('— oberste Ebene (neue Wurzel)', ''));
+  for (const b of visibleFks()) asel.appendChild(new Option('· '.repeat(Math.max(0, fkDepth(b) - baseDepth())) + b.name + (b.rolle ? ' (' + b.rolle + ')' : ''), b.id));
+  asel.value = orgAnker == null ? '' : String(orgAnker);
+  asel.onchange = () => { orgAnker = asel.value ? Number(asel.value) : null; if (orgEntwurf) vorschau(); };
+  al.appendChild(asel); opts.appendChild(al);
+  const chk = (txt, wert, set) => { const l = el('label', 'org-chk'); const c = el('input'); c.type = 'checkbox'; c.checked = wert; c.onchange = () => { set(c.checked); if (orgEntwurf) vorschau(); }; l.append(c, el('span', null, txt)); return l; };
+  opts.appendChild(chk('Vorhandene Partner aktualisieren (Position, Führungskraft)', orgAktualisieren, x => orgAktualisieren = x));
+  opts.appendChild(chk('Ausgeschiedene mitnehmen', orgInaktive, x => orgInaktive = x));
+  box.appendChild(opts);
+
+  const btns = el('div', 'org-btns');
+  const fi = el('input'); fi.type = 'file'; fi.accept = '.xlsx,.xls,.csv,.txt'; fi.hidden = true;
+  fi.onchange = async () => {
+    const f = fi.files[0]; fi.value = ''; if (!f) return;
+    try {
+      if (/\.xlsx?$/i.test(f.name)) {
+        const wb = XLSX.read(await f.arrayBuffer(), { cellDates: false });
+        let fehler = null;
+        for (const n of wb.SheetNames) {   // erstes Blatt mit erkennbarer Kopfzeile
+          try { orgEntwurf = { quelle: f.name + ' · Blatt ' + n, gelesen: ORG.ausRaster(XLSX.utils.sheet_to_json(wb.Sheets[n], { header: 1, raw: false, defval: '' })) }; fehler = null; break; }
+          catch (e) { fehler = e; }
+        }
+        if (fehler) throw fehler;
+      } else {
+        orgText = await f.text(); orgEntwurf = { quelle: f.name, gelesen: ORG.lesenText(orgText) };
+      }
+      vorschau();
+    } catch (e) { toast('Import: ' + e.message, true); }
+  };
+  const datei = el('button', 'btn', '⇪ Datei wählen (.xlsx, .csv)'); datei.onclick = () => fi.click();
+  const pruef = el('button', 'btn sub', 'Eingefügten Text prüfen');
+  pruef.onclick = () => { try { orgEntwurf = { quelle: 'eingefügter Text', gelesen: ORG.lesenText(orgText) }; vorschau(); } catch (e) { toast(e.message, true); } };
+  const vorl = el('a', 'add-line', 'Vorlage herunterladen');
+  vorl.href = URL.createObjectURL(new Blob(['\ufeff' + ORG.VORLAGE], { type: 'text/csv;charset=utf-8' })); vorl.download = 'organigramm-vorlage.csv';
+  btns.append(datei, fi, pruef, vorl);
+  box.appendChild(btns);
+  v.appendChild(box);
+
+  const vbox = el('div', 'org-vorschau'); v.appendChild(vbox);
+  function vorschau() {
+    orgEntwurf.plan = ORG.planen(orgEntwurf.gelesen.zeilen, visibleFks(), { anker: orgAnker, aktualisieren: orgAktualisieren, inaktiveMitnehmen: orgInaktive, positionen: positionen() });
+    renderOrgVorschau(vbox);
+  }
+  if (orgEntwurf) vorschau();
+
+  // Aktuelle Struktur mit Partnernummer und Login-E-Mail
+  v.appendChild(el('div', 'section-lbl', 'Aktuelle Struktur · ' + visibleFks().length + ' Personen · E-Mail = Login für „Zugang je Partner“'));
+  const wrap = el('div', 'tblscroll');
+  const t = el('table', 'tbl struktur-tbl');
+  t.innerHTML = '<thead><tr><th>Person</th><th>Position</th><th>Partnernummer</th><th>E-Mail (Login)</th><th>Version</th><th class="col-del"></th></tr></thead>';
+  const tb = el('tbody'); const base = baseDepth();
+  for (const b of visibleFks()) {
+    const tr = el('tr');
+    const nt = el('td'); nt.style.paddingLeft = (10 + Math.max(0, fkDepth(b) - base) * 18) + 'px';
+    if (fkDepth(b) - base > 0) nt.appendChild(el('span', 'tree', '└ '));
+    nt.appendChild(el('span', 'dot ' + b.gruppe)); const ln = el('a', 'name', ' ' + b.name); ln.onclick = () => go(() => showFk(b.id)); nt.appendChild(ln);
+    tr.appendChild(nt);
+    tr.appendChild(el('td', 'rolle', b.rolle || '—'));
+    const feld = (col, ph, typ) => {
+      const td = el('td'); const i = el('input'); i.type = typ || 'text'; i.value = b[col] || ''; i.placeholder = ph;
+      i.onchange = async () => {
+        const w = i.value.trim() || null;
+        const { error } = await sb.from('bereiche').update({ [col]: col === 'email' && w ? w.toLowerCase() : w }).eq('id', b.id);
+        if (error) { toast(/duplicate|unique/i.test(error.message) ? 'Schon bei einer anderen Person eingetragen.' : error.message, true); i.value = b[col] || ''; return; }
+        await loadBereiche();
+      };
+      td.appendChild(i); return td;
+    };
+    tr.appendChild(feld('partnernummer', '—'));
+    tr.appendChild(feld('email', '—', 'email'));
+    tr.appendChild(el('td', null, istProfi(b) ? 'Profiberater' : 'Führungskraft'));
+    const del = el('td', 'col-del');
+    if (b.id !== viewer.fkId) {
+      const bt = el('button', 'del-btn', '✕'); bt.title = 'Person entfernen — ihr Team rückt eine Ebene hoch';
+      bt.onclick = async () => {
+        if (!confirm(b.name + ' entfernen? Interessenten, Planung und Listen dieser Person werden gelöscht; ihr Team rückt eine Ebene hoch.')) return;
+        for (const k of childrenFks(b.id)) await sb.from('bereiche').update({ parent_id: b.parent_id }).eq('id', k.id);
+        const { error } = await sb.from('bereiche').delete().eq('id', b.id);
+        if (error) return toast(error.message, true);
+        await loadBereiche(); buildRoleSwitch(); rerenderCurrent();
+      };
+      del.appendChild(bt);
+    }
+    tr.appendChild(del);
+    tb.appendChild(tr);
+  }
+  t.appendChild(tb); wrap.appendChild(t); v.appendChild(wrap);
+}
+
+function renderOrgVorschau(box) {
+  box.innerHTML = '';
+  const { plan, quelle, gelesen } = orgEntwurf;
+  const ankerName = plan.anker == null ? 'oberste Ebene' : fkName(plan.anker);
+  box.appendChild(el('div', 'section-lbl', 'Vorschau aus ' + quelle + ' · ' + plan.neu.length + ' neu · ' + plan.aktualisiert.length + ' aktualisieren · ' +
+    plan.unveraendert + ' schon vorhanden · ' + plan.uebersprungen.length + ' übersprungen'));
+  box.appendChild(el('div', 'pillinfo', 'Erkannt: ' + (gelesen.art === 'gliederung' ? 'eingerückter Baum' : 'Tabelle mit ' + gelesen.spalten.join(', ')) + ' · oberste Zeilen hängen unter ' + ankerName));
+  const hinweise = [...plan.hinweise, ...plan.uebersprungen.map(u => 'Zeile ' + u.zeile + ': ' + u.name + ' übersprungen (' + u.grund + ')')];
+  const unbekannt = plan.baum.filter(x => !x.positionErkannt).length;
+  if (unbekannt) hinweise.push(unbekannt + ' Position(en) nicht im Positionskatalog erkannt – sie werden als Text übernommen und können unter „Karriere & Provision“ zugeordnet werden.');
+  if (hinweise.length) { const ul = el('ul', 'org-hinweise'); for (const h of hinweise.slice(0, 30)) ul.appendChild(el('li', null, h)); if (hinweise.length > 30) ul.appendChild(el('li', null, '… und ' + (hinweise.length - 30) + ' weitere')); box.appendChild(ul); }
+
+  const wrap = el('div', 'tblscroll');
+  const t = el('table', 'dash-tbl org-tbl');
+  t.innerHTML = '<thead><tr><th>Person</th><th>Partnernummer</th><th>Position</th><th>Übernahme</th></tr></thead>';
+  const tb = el('tbody');
+  const ART = { neu: ['amp amp-gruen', 'neu anlegen'], aktualisiert: ['amp amp-gelb', 'aktualisieren'], vorhanden: ['amp amp-none', 'schon vorhanden'] };
+  for (const z of plan.baum) {
+    const tr = el('tr'); if (z.art === 'vorhanden') tr.classList.add('row-dim');
+    const nt = el('td'); nt.style.paddingLeft = (12 + z.tiefe * 18) + 'px';
+    if (z.tiefe) nt.appendChild(el('span', 'tree', '└ '));
+    nt.appendChild(el('b', null, z.name));
+    if (!z.tiefe) nt.appendChild(el('span', 'ziel-rolle', '  → unter ' + (z.unter != null ? fkName(z.unter) : ankerName)));
+    tr.appendChild(nt);
+    tr.appendChild(el('td', null, z.partnernummer || '—'));
+    const pt = el('td', z.positionErkannt ? null : 'org-unbekannt', z.rolle || '—'); if (!z.positionErkannt) pt.title = 'nicht im Positionskatalog erkannt';
+    tr.appendChild(pt);
+    const at = el('td'); at.appendChild(el('span', ART[z.art][0], ART[z.art][1])); tr.appendChild(at);
+    tb.appendChild(tr);
+  }
+  t.appendChild(tb); wrap.appendChild(t); box.appendChild(wrap);
+
+  const bar = el('div', 'toolbar');
+  const n = plan.neu.length + plan.aktualisiert.length;
+  const ok = el('button', 'btn', n ? '✓ ' + [plan.neu.length ? plan.neu.length + ' Partner anlegen' : '', plan.aktualisiert.length ? plan.aktualisiert.length + ' aktualisieren' : ''].filter(Boolean).join(' und ') : 'Nichts zu übernehmen');
+  ok.disabled = !n;
+  ok.onclick = async () => { ok.disabled = true; await orgUebernehmen(); };
+  const weg = el('button', 'btn sub', 'Verwerfen'); weg.onclick = () => { orgEntwurf = null; rerenderCurrent(); };
+  bar.append(ok, weg); box.appendChild(bar);
+}
+
+async function orgUebernehmen() {
+  const plan = orgEntwurf.plan, anker = plan.anker;
+  const idVon = new Map(), fehler = [];
+  let sort = Math.max(0, ...BEREICHE.map(b => b.sortierung || 0));
+  const zielId = e => e.art === 'neu' ? (idVon.has(e.key) ? idVon.get(e.key) : anker) : e.art === 'bestand' ? e.id : anker;
+  let i = 0;
+  for (const k of plan.neu) {
+    toast('Lege an … ' + (++i) + ' / ' + plan.neu.length);
+    const row = { name: k.name, rolle: k.rolle, position: k.position, karriereweg: k.karriereweg, gruppe: k.gruppe,
+      partnernummer: k.partnernummer, email: k.email, parent_id: zielId(k.eltern), quartalsziel: 0, sortierung: ++sort };
+    let { data, error } = await sb.from('bereiche').insert(row).select().single();
+    // gleicher Name in einem Bereich, den diese Führungskraft nicht sieht → mit Partnernummer unterscheiden
+    if (error && /duplicate|unique/i.test(error.message) && !/partnernummer|email/i.test(error.message)) {
+      row.name = k.name + ' (' + (k.partnernummer || 'Import') + ')';
+      ({ data, error } = await sb.from('bereiche').insert(row).select().single());
+    }
+    if (error) { fehler.push(k.name + ': ' + (/partnernummer/i.test(error.message) ? 'Partnernummer gibt es schon' : /email/i.test(error.message) ? 'E-Mail gibt es schon' : error.message)); continue; }
+    idVon.set(k.key, data.id);
+  }
+  await loadBereiche();
+  for (const a of plan.aktualisiert) {
+    const ch = { ...a.aenderungen };
+    if (ch.eltern) {
+      const pid = zielId(ch.eltern); delete ch.eltern;
+      if (pid != null && pid !== a.id && !subtreeIds(a.id).includes(pid)) ch.parent_id = pid;
+      else if (pid != null) fehler.push(a.name + ': nicht verschoben (läge unter dem eigenen Team)');
+    }
+    if (!Object.keys(ch).length) continue;
+    const { error } = await sb.from('bereiche').update(ch).eq('id', a.id);
+    if (error) fehler.push(a.name + ': ' + error.message);
+  }
+  await loadBereiche(); buildRoleSwitch();
+  const angelegt = idVon.size;
+  orgEntwurf = null; orgText = '';
+  toast(angelegt + ' Partner angelegt' + (plan.aktualisiert.length ? ', ' + plan.aktualisiert.length + ' aktualisiert' : '') + (fehler.length ? ' · ' + fehler.length + ' Fehler' : ''), !!fehler.length);
+  rerenderCurrent();
+  if (fehler.length) alert('Nicht übernommen:\n\n' + fehler.join('\n'));
+}
+
 /* ── Mitarbeiter-Board (eigene Planung, monats-gescoped) ───────────── */
 async function showFk(id) {
   curName = 'fk:' + id; renderNav();
   const b = BEREICHE.find(x => x.id === id); if (!b) return;
   const v = $('#view'); v.innerHTML = '';
-  const subT = { pipeline: 'Planung ' + monthLabel(currentMonat) + ' · Interessenten pflegen', avdepot: 'Kampagne · Privates Altersvorsorgedepot', kpue: 'Kundenpotenzialübersicht · 30er-Liste' };
+  const profi = istProfi(b);
+  if (boardTab === 'geschaeftsstand' && !profi) boardTab = 'pipeline';
+  const subT = { pipeline: 'Planung ' + monthLabel(currentMonat) + ' · Interessenten pflegen', monatsplanung: 'Monatsplanung ' + monthLabel(currentMonat) + ' · was eingereicht werden soll',
+    avdepot: 'Kampagne · Privates Altersvorsorgedepot', kpue: 'Kundenpotenzialübersicht · 30er-Liste', geschaeftsstand: 'Geschäftsstand · Weg zur nächsten Stufe aus der Bereichsauswertung' };
   v.appendChild(header((b.rolle || 'MITARBEITER').toUpperCase(), b.name, subT[boardTab] || subT.pipeline, b.gruppe));
   const tabs = el('div', 'tabbar');
   const mk = (key, label) => { const t = el('button', 'tab' + (boardTab === key ? ' active' : ''), label); t.onclick = () => { boardTab = key; showFk(id); }; return t; };
-  tabs.append(mk('pipeline', 'Interessenten-Pipeline'), mk('avdepot', '🎯 Privates Altersvorsorgedepot'), mk('kpue', '📇 30er-Liste (KPÜ)'));
+  tabs.append(mk('pipeline', 'Interessenten-Pipeline'), mk('monatsplanung', '📅 Monatsplanung'), mk('avdepot', '🎯 Privates Altersvorsorgedepot'), mk('kpue', '📇 30er-Liste (KPÜ)'));
+  if (profi) tabs.append(mk('geschaeftsstand', '🏁 Geschäftsstand'));
   v.appendChild(tabs);
   if (isInhaber(b)) renderToolLinks(v);
+  if (boardTab === 'monatsplanung') return renderMonatsplanung(v, b);
+  if (boardTab === 'geschaeftsstand') return renderGeschaeftsstand(v, b);
   if (boardTab === 'avdepot') return renderAvdepot(v, b);
   if (boardTab === 'kpue') return renderKpue(v, b);
   return renderPipeline(v, b, id);
@@ -1270,12 +1888,13 @@ function subscribe() {
   if (realtimeCh) { sb.removeChannel(realtimeCh); realtimeCh = null; }
   const rerender = async () => {
     const a = document.activeElement;
-    if (a && (a.tagName === 'INPUT' || a.tagName === 'SELECT')) return;
+    if (a && (a.tagName === 'INPUT' || a.tagName === 'SELECT' || a.tagName === 'TEXTAREA')) return;
+    await loadBereiche();
     await loadZiele();
     rerenderCurrent();
   };
   realtimeCh = sb.channel('board');
-  for (const table of ['eintraege', 'bereiche', 'avdepot', 'kpue', 'ziele', 'volumen', 'aktivitaeten'])
+  for (const table of ['eintraege', 'bereiche', 'avdepot', 'kpue', 'ziele', 'volumen', 'aktivitaeten', 'planpositionen', 'kennzahlen'])
     realtimeCh.on('postgres_changes', { event: '*', schema: 'public', table }, rerender);
   realtimeCh.subscribe();
 }
@@ -1349,6 +1968,13 @@ async function exportXlsx() {
   const rec = [['Interessent', 'Mitarbeiter', 'Monat', 'Ablehnungsgrund', 'Potenzial €']];
   for (const r of (rows || []).filter(r => r.status === 'abgelehnt')) rec.push([r.kunde || '', fkName(r.bereich_id), r.monat || '', r.ablehnungsgrund || '', num(r.potenzial)]);
   add('Recycling', rec);
+
+  // Monatsplanung (alle Monate)
+  const { data: plan } = await sb.from('planpositionen').select('*');
+  const mp = [['Mitarbeiter', 'Monat', 'Kunde', 'Sparte', 'Volumen €', 'Stand', 'Notiz']];
+  for (const r of (plan || []).slice().sort((a, b) => (a.monat || '') < (b.monat || '') ? -1 : 1))
+    mp.push([fkName(r.bereich_id), r.monat || '', r.kunde || '', r.sparte || '', num(r.betrag), PL.PLAN_LABEL[r.status] ? PL.PLAN_LABEL[r.status].slice(2) : (r.status || ''), r.notiz || '']);
+  add('Monatsplanung', mp);
 
   XLSX.writeFile(wb, 'Umsatzboard_' + new Date().toISOString().slice(0, 10) + '.xlsx');
   toast('Export fertig');
